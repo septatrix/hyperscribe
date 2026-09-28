@@ -1,0 +1,34 @@
+[project]
+name = "bench"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "Septatrix", email = "24257556+septatrix@users.noreply.github.com" }
+]
+requires-python = ">=3.14"
+dependencies = [
+    "airium>=0.2.6",
+    "cheetah3>=3.2.6.post1",
+    "ct3>=3.4.0.post5",
+    "dominate>=2.9.1",
+    "hyperscript>=0.3.0",
+    "jinja2>=3.1.6",
+    "legacy-cgi>=2.6.4",
+    "ludic>=1.0.0",
+    "mako>=1.4.3",
+    "setuptools>=84.0.0",
+    "yattag>=1.16.1",
+]
+
+[project.scripts]
+benchmark-templates = "bench.benchmark:main"
+compile-jinja-template = "bench.compile_jinja:main"
+benchmark-escaping = "bench.escape_benchmark:main"
+
+[build-system]
+requires = ["uv_build>=0.12.15,<0.13.0"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = ["bench", "tagflow"]
