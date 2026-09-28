@@ -91,7 +91,7 @@ class DocWriter:
         self._tags: dict[str, _TagContext] = {}
         self._tag_builders: dict[str, _TagBuilder] = {}
         self._indentation = "  "
-        self._children: list[bool] = []
+        self._depth: int = 0
 
     def __getattr__(self, name: str) -> _TagBuilder:
         """Return a cached tag object usable directly or with attributes."""
@@ -137,30 +137,25 @@ class DocWriter:
 
     def _render_leaf(self, context: _TagContext, text: str) -> None:
         """Write shorthand leaf markup inline, without context manager allocation."""
-        depth = len(self._children)
-        prefix = "\n" + self._indentation * depth if depth else ""
-        if depth:
-            self._children[-1] = True
+        prefix = "\n" + self._indentation * self._depth
         openings = "".join(context.openings)
         closings = "".join(reversed(context.closings))
         self._write(f"{prefix}{openings}{_escape_text(text)}{closings}")
 
     def _open_tag(self, opening: str) -> None:
-        if self._children:
-            self._children[-1] = True
-            prefix = "\n" + self._indentation * len(self._children)
-        else:
-            prefix = ""
+        prefix = "\n" + self._indentation * self._depth
         self._write(prefix + opening)
-        self._children.append(False)
+        self._depth += 1
 
     def _close_tag(self, closing: str) -> None:
-        has_children = self._children.pop()
-        if has_children:
-            prefix = "\n" + self._indentation * len(self._children)
-        else:
-            prefix = ""
+        self._depth -= 1
+        prefix = "\n" + self._indentation * self._depth
         self._write(prefix + closing)
 
+    def write_raw(self, value: str) -> None:
+        """Write unescaped text to the document, bypassing the escaping logic."""
+        self._write(value)
+
     def text(self, value: str) -> None:
+        """Write escaped text to the document."""
         self._write(_escape_text(value))
