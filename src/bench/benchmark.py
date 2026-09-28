@@ -167,6 +167,12 @@ def main() -> None:
 
     # Fail early if an implementation does not produce the expected output.
     outputs = {name: renderer(items) for name, renderer in renderers.items()}
+
+    if args.show_output:
+        for name, output in outputs.items():
+            print(f"--- {name} ---")
+            print(output)
+
     baseline_name, baseline_output = next(iter(outputs.items()))
     expected_shape = html_shape(baseline_output)
     for name, output in outputs.items():
@@ -194,11 +200,6 @@ def main() -> None:
                 f"{baseline_name}:\n"
                 f"expected: {expected_shape!r}\nactual:   {shape!r}"
             )
-
-    if args.show_output:
-        for name, output in outputs.items():
-            print(f"--- {name} ---")
-            print(output)
 
     output_sizes = {
         name: len(output.encode("utf-8")) for name, output in outputs.items()
