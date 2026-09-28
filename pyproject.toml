@@ -9,7 +9,6 @@ authors = [
 requires-python = ">=3.14"
 dependencies = [
     "airium>=0.2.6",
-    "cheetah3>=3.2.6.post1",
     "ct3>=3.4.0.post5",
     "dominate>=2.9.1",
     "hyperscript>=0.3.0",
