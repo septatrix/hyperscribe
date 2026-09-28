@@ -8,11 +8,12 @@ def root(context, missing=missing, environment=environment):
     concat = environment.concat
     cond_expr_undefined = Undefined
     if 0: yield None
-    l_0_topic_index = resolve('topic_index')
-    l_0_items = resolve('items')
+    parent_template = None
     l_0_topic_list = missing
     pass
-    yield '<main>'
+    parent_template = environment.get_template('base.jinja2', 'benchmark_template')
+    for name, parent_block in parent_template.blocks.items():
+        context.blocks.setdefault(name, []).append(parent_block)
     def macro(l_1_topics):
         t_1 = []
         if l_1_topics is missing:
@@ -42,10 +43,44 @@ def root(context, missing=missing, environment=environment):
         return concat(t_1)
     context.exported_vars.add('topic_list')
     context.vars['topic_list'] = l_0_topic_list = Macro(environment, macro, 'topic_list', ('topics',), False, False, False, context.eval_ctx.autoescape)
+    yield from parent_template.root_render_func(context)
+
+def block_head(context, missing=missing, environment=environment):
+    resolve = context.resolve_or_missing
+    undefined = environment.undefined
+    concat = environment.concat
+    cond_expr_undefined = Undefined
+    if 0: yield None
+    _block_vars = {}
+    pass
+    yield '<title>Articles</title>'
+
+def block_navigation(context, missing=missing, environment=environment):
+    resolve = context.resolve_or_missing
+    undefined = environment.undefined
+    concat = environment.concat
+    cond_expr_undefined = Undefined
+    if 0: yield None
+    _block_vars = {}
+    l_0_topic_list = resolve('topic_list')
+    l_0_topic_index = resolve('topic_index')
+    pass
     yield '\n  <nav>\n    <h2>Browse topics</h2>\n    '
-    yield escape(context.call((undefined(name='topic_list') if l_0_topic_list is missing else l_0_topic_list), (undefined(name='topic_index') if l_0_topic_index is missing else l_0_topic_index)))
-    yield '\n  </nav>\n  <ul>\n'
+    yield escape(context.call((undefined(name='topic_list') if l_0_topic_list is missing else l_0_topic_list), (undefined(name='topic_index') if l_0_topic_index is missing else l_0_topic_index), _block_vars=_block_vars))
+    yield '\n  </nav>\n'
+
+def block_content(context, missing=missing, environment=environment):
+    resolve = context.resolve_or_missing
+    undefined = environment.undefined
+    concat = environment.concat
+    cond_expr_undefined = Undefined
+    if 0: yield None
+    _block_vars = {}
+    l_0_items = resolve('items')
+    pass
+    yield '\n  <ul>\n'
     for l_1_item in (undefined(name='items') if l_0_items is missing else l_0_items):
+        l_1_topic_list = resolve('topic_list')
         _loop_vars = {}
         pass
         yield '    <li>\n      <a href="'
@@ -69,7 +104,7 @@ def root(context, missing=missing, environment=environment):
         yield '\n      '
         if environment.getattr(l_1_item, 'tags'):
             pass
-            yield escape(context.call((undefined(name='topic_list') if l_0_topic_list is missing else l_0_topic_list), environment.getattr(l_1_item, 'tags'), _loop_vars=_loop_vars))
+            yield escape(context.call((undefined(name='topic_list') if l_1_topic_list is missing else l_1_topic_list), environment.getattr(l_1_item, 'tags'), _loop_vars=_loop_vars))
         yield '\n      '
         if environment.getattr(l_1_item, 'comments'):
             pass
@@ -77,8 +112,8 @@ def root(context, missing=missing, environment=environment):
             yield escape(environment.getattr(l_1_item, 'comments'))
             yield ' comments</span>'
         yield '\n    </li>\n'
-    l_1_item = missing
-    yield '  </ul>\n</main>'
+    l_1_item = l_1_topic_list = missing
+    yield '  </ul>\n'
 
-blocks = {}
-debug_info = '2=15&3=24&7=45&10=47&11=51&12=55&13=57&14=61&15=63&16=69&17=73'
+blocks = {'head': block_head, 'navigation': block_navigation, 'content': block_content}
+debug_info = '1=13&3=16&4=25&7=47&9=57&12=68&16=71&18=81&19=86&20=90&21=92&22=96&23=98&24=104&25=108'

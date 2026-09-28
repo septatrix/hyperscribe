@@ -19,24 +19,28 @@ def render_topic_list(topics: list[str]):
 
 def render(items: list[Item]) -> str:
     topic_index = sorted({topic for item in items for topic in item["tags"]})
-    root = tags.main()
+    root = tags.html(lang="en")
     with root:
-        with tags.nav():
-            tags.h2("Browse topics")
-            render_topic_list(topic_index)
-        with tags.ul():
-            for item in items:
-                with tags.li():
-                    tags.a(item["title"], href=item["url"])
-                    tags.p(item["summary"])
-                    if item["featured"]:
-                        tags.strong("Featured")
-                    tags.span(item["category"])
-                    if item["author"]:
-                        with tags.small():
-                            tags.span(f"By {item['author']}")
-                    if item["tags"]:
-                        render_topic_list(item["tags"])
-                    if item["comments"]:
-                        tags.span(f"{item['comments']} comments")
-    return root.render(pretty=True)
+        with tags.head():
+            tags.title("Articles")
+        with tags.body():
+            with tags.main():
+                with tags.nav():
+                    tags.h2("Browse topics")
+                    render_topic_list(topic_index)
+                with tags.ul():
+                    for item in items:
+                        with tags.li():
+                            tags.a(item["title"], href=item["url"])
+                            tags.p(item["summary"])
+                            if item["featured"]:
+                                tags.strong("Featured")
+                            tags.span(item["category"])
+                            if item["author"]:
+                                with tags.small():
+                                    tags.span(f"By {item['author']}")
+                            if item["tags"]:
+                                render_topic_list(item["tags"])
+                            if item["comments"]:
+                                tags.span(f"{item['comments']} comments")
+    return "<!DOCTYPE html>\n" + root.render(pretty=True)

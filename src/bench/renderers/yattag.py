@@ -18,29 +18,34 @@ def render_topic_list(tag, text, topics: list[str]) -> None:
 def render(items: list[Item]) -> str:
     simpledoc, tag, text = SimpleDoc().tagtext()
     topic_index = sorted({topic for item in items for topic in item["tags"]})
-    with tag("main"):
-        with tag("nav"):
-            with tag("h2"):
-                text("Browse topics")
-            render_topic_list(tag, text, topic_index)
-        with tag("ul"):
-            for item in items:
-                with tag("li"):
-                    with tag("a", href=item["url"]):
-                        text(item["title"])
-                    with tag("p"):
-                        text(item["summary"])
-                    if item["featured"]:
-                        with tag("strong"):
-                            text("Featured")
-                    with tag("span"):
-                        text(item["category"])
-                    if item["author"]:
-                        with tag("small"), tag("span"):
-                            text(f"By {item['author']}")
-                    if item["tags"]:
-                        render_topic_list(tag, text, item["tags"])
-                    if item["comments"]:
-                        with tag("span"):
-                            text(f"{item['comments']} comments")
-    return indent(simpledoc.getvalue(), indent_text=FIRST_LINE)
+    with tag("html", lang="en"):
+        with tag("head"):
+            with tag("title"):
+                text("Articles")
+        with tag("body"):
+            with tag("main"):
+                with tag("nav"):
+                    with tag("h2"):
+                        text("Browse topics")
+                    render_topic_list(tag, text, topic_index)
+                with tag("ul"):
+                    for item in items:
+                        with tag("li"):
+                            with tag("a", href=item["url"]):
+                                text(item["title"])
+                            with tag("p"):
+                                text(item["summary"])
+                            if item["featured"]:
+                                with tag("strong"):
+                                    text("Featured")
+                            with tag("span"):
+                                text(item["category"])
+                            if item["author"]:
+                                with tag("small"), tag("span"):
+                                    text(f"By {item['author']}")
+                            if item["tags"]:
+                                render_topic_list(tag, text, item["tags"])
+                            if item["comments"]:
+                                with tag("span"):
+                                    text(f"{item['comments']} comments")
+    return "<!DOCTYPE html>\n" + indent(simpledoc.getvalue(), indent_text=FIRST_LINE)

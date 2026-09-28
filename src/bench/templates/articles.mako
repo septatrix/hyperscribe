@@ -5,11 +5,16 @@
 % endfor
 </div>
 </%def>
-<main>
+<%inherit file="base.mako"/>
+<%block name="head"><title>Articles</title></%block>
+<%block name="navigation">
   <nav>
     <h2>Browse topics</h2>
     ${topic_list(topic_index) | n}
   </nav>
+</%block>
+
+<%block name="content">
   <ul>
 % for item in items:
     <li>
@@ -31,4 +36,4 @@
     </li>
 % endfor
   </ul>
-</main>
+</%block>

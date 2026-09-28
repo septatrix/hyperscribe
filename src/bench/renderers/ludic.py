@@ -2,7 +2,23 @@
 
 import html
 
-from ludic.html import a, div, h2, li, main, nav, p, small, span, strong, ul
+from ludic.html import (
+    a,
+    body,
+    div,
+    h2,
+    head,
+    html as html_element,
+    li,
+    main,
+    nav,
+    p,
+    small,
+    span,
+    strong,
+    title,
+    ul,
+)
 
 from bench.models import Item
 
@@ -38,4 +54,9 @@ def render(items: list[Item]) -> str:
         if item["comments"]:
             children.append(span(f"{item['comments']} comments"))
         entries.append(li(*children))
-    return main(topic_nav, ul(*entries)).to_string(pretty=True)
+    document = html_element(
+        head(title("Articles")),
+        body(main(topic_nav, ul(*entries))),
+        lang="en",
+    )
+    return "<!DOCTYPE html>\n" + document.to_string(pretty=True)

@@ -1,5 +1,6 @@
 """Renderer implementations used by the benchmark."""
 
+# TODO use lazy import to not load those which are not run
 from bench.renderers.airium import render as render_airium
 from bench.renderers.cheetah import render as render_cheetah
 from bench.renderers.dominate import render as render_dominate

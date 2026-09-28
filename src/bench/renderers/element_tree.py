@@ -16,11 +16,15 @@ def render_topic_list(parent: ElementTree.Element, topics: list[str]) -> None:
 
 def render(items: list[Item]) -> str:
     topic_index = sorted({topic for item in items for topic in item["tags"]})
-    root = ElementTree.Element("main")
-    navigation = ElementTree.SubElement(root, "nav")
+    root = ElementTree.Element("html", lang="en")
+    head = ElementTree.SubElement(root, "head")
+    ElementTree.SubElement(head, "title").text = "Articles"
+    body = ElementTree.SubElement(root, "body")
+    main = ElementTree.SubElement(body, "main")
+    navigation = ElementTree.SubElement(main, "nav")
     ElementTree.SubElement(navigation, "h2").text = "Browse topics"
     render_topic_list(navigation, topic_index)
-    listing = ElementTree.SubElement(root, "ul")
+    listing = ElementTree.SubElement(main, "ul")
     if not items:
         listing.text = "\n"
     for item in items:
@@ -40,4 +44,6 @@ def render(items: list[Item]) -> str:
         if item["comments"]:
             ElementTree.SubElement(entry, "span").text = f"{item['comments']} comments"
     ElementTree.indent(root, space="  ")
-    return ElementTree.tostring(root, encoding="unicode", method="html")
+    return "<!DOCTYPE html>\n" + ElementTree.tostring(
+        root, encoding="unicode", method="html"
+    )

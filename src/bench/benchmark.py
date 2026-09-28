@@ -174,10 +174,20 @@ def main() -> None:
         list_item_count = sum(1 for part in shape if part[:2] == ("start", "li"))
         if (
             not shape
-            or shape[0][:2] != ("start", "main")
+            or not output.lstrip().lower().startswith("<!doctype html>")
+            or shape[0] != ("start", "html", (("lang", "en"),))
+            or shape[:4]
+            != [
+                ("start", "html", (("lang", "en"),)),
+                ("start", "head", ()),
+                ("start", "title", ()),
+                ("text", "Articles"),
+            ]
+            or not any(part[:2] == ("start", "body") for part in shape)
+            or not any(part[:2] == ("start", "main") for part in shape)
             or list_item_count != args.items
         ):
-            raise RuntimeError(f"{name} produced unexpected HTML")
+            raise RuntimeError(f"{name} produced an unexpected HTML document")
         if shape != expected_shape:
             raise RuntimeError(
                 f"{name} produced HTML structure or text that differs from "

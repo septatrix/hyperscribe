@@ -35,4 +35,10 @@ def render(items: list[Item]) -> str:
         if item["comments"]:
             children.append(h("span", f"{item['comments']} comments"))
         entries.append(h("li", *children))
-    return str(h("main", navigation, h("ul", *entries)))
+    document = h(
+        "html",
+        {"lang": "en"},
+        h("head", h("title", "Articles")),
+        h("body", h("main", navigation, h("ul", *entries))),
+    )
+    return "<!DOCTYPE html>\n" + str(document)

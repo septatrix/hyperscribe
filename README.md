@@ -8,9 +8,11 @@ It also renders a reusable topic-list component in the page navigation and for
 each article with tags. Jinja defines the component as a macro; each Python
 renderer exposes and calls a matching helper function.
 The default workload contains 500 articles and varies the data to exercise each
-branch. The Jinja template lives in `src/bench/templates/articles.jinja2`; each
-Python renderer has its own module under `src/bench/renderers/`. The
-stream-backed Tagflow renderer uses the standalone package in `src/tagflow/`.
+branch. Jinja, Mako, and Cheetah3 each use a base template with overridable
+navigation and content sections. The Jinja template lives in
+`src/bench/templates/articles.jinja2`; each renderer has its own module under
+`src/bench/renderers/`. Tagflow wraps the shared page container in a
+`@contextmanager` function and uses the standalone package in `src/tagflow/`.
 
 Install the project and run the benchmark:
 
@@ -29,7 +31,7 @@ Select renderers with `--include` or skip some with `--exclude`:
 
 ```sh
 uv run benchmark-templates --include Jinja Hyperscript
-uv run benchmark-templates --exclude "Tagflow StringIO" Ludic
+uv run benchmark-templates --exclude Tagflow Ludic
 ```
 
 The report shows median wall-clock time and peak traced Python memory per

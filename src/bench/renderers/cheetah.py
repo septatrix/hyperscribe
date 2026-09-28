@@ -5,6 +5,7 @@ from pathlib import Path
 
 from Cheetah.Template import Template
 
+from bench.cheetah_base import BasePage  # noqa: F401  # Precompile before the child.
 from bench.models import Item
 
 _template_path = Path(__file__).parents[1] / "templates" / "articles.cheetah"
