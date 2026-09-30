@@ -21,8 +21,8 @@ def page(doc: DocWriter) -> Iterator[Literal["head", "navigation", "content"]]:
 
 
 def render_topic_list(doc: DocWriter, topics: list[str]) -> None:
-    """Append topic markup to the active writer-backed document."""
-    with doc.div:
+    """Append topic markup to the active writer-backed document on a single line."""
+    with doc.inline(), doc.div:
         for index, topic in enumerate(topics):
             if index:
                 doc(", ")

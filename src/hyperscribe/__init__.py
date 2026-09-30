@@ -39,6 +39,34 @@ class _TagContext:
 
 
 @dataclass(slots=True)
+class _InlineContext:
+    """Write everything in the block on one line, indented once and ended once."""
+
+    doc: DocWriter
+    previous_prefixes: list[str] = field(init=False)
+    previous_end: str = field(init=False)
+
+    def __enter__(self) -> None:
+        doc = self.doc
+        doc._write(doc._prefix(doc._depth))
+        self.previous_prefixes = doc._prefixes
+        self.previous_end = doc._end
+        doc._prefixes = doc._inline_prefixes
+        doc._end = ""
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_value: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> None:
+        doc = self.doc
+        doc._prefixes = self.previous_prefixes
+        doc._end = self.previous_end
+        doc._write(doc._end)
+
+
+@dataclass(slots=True)
 class _TagBuilder:
     """Represent a tag, usable directly or with attributes supplied by a call."""
 
@@ -92,10 +120,12 @@ class DocWriter:
         self._tag_builders: dict[str, _TagBuilder] = {}
         self._indentation = "  "
         self._depth: int = 0
-        # Indentation by depth and the line ending written after each tag,
-        # like print().
+        # Indentation by depth and the line ending written after each tag, like
+        # print(); inline blocks swap in empty strings for both.
         self._end = "\n"
-        self._prefixes: list[str] = []
+        self._line_prefixes: list[str] = []
+        self._inline_prefixes: list[str] = []
+        self._prefixes = self._line_prefixes
 
     def __getattr__(self, name: str) -> _TagBuilder:
         """Return a cached tag object usable directly or with attributes."""
@@ -110,6 +140,15 @@ class DocWriter:
     def __call__(self, value: str) -> None:
         """Write escaped text to the document."""
         self.text(value)
+
+    def inline(self) -> AbstractContextManager[None]:
+        """Suppress line breaks and indentation for the markup written in the block.
+
+        The block is indented and ends its line like any other tag,
+        so ``with doc.inline(), doc.div:`` renders the whole ``div`` on one line.
+        Blocks may be nested; formatting resumes once the outermost one exits.
+        """
+        return _InlineContext(self)
 
     def tag(self, name: str, **attrs: str) -> _TagContext:
         if attrs:
@@ -140,13 +179,14 @@ class DocWriter:
         )
 
     def _generate_prefix(self, depth: int) -> str:
-        """Return the prefix for a depth, extending the per-depth cache as needed."""
-        for missing in range(len(self._prefixes), depth + 1):
-            self._prefixes.append(self._indentation * missing)
-        return self._prefixes[depth]
+        """Return the prefix for a depth, extending the per-depth caches as needed."""
+        for missing in range(len(self._line_prefixes), depth + 1):
+            self._line_prefixes.append(self._indentation * missing)
+            self._inline_prefixes.append("")
+        return self._line_prefixes[depth]
 
     def _prefix(self, depth: int) -> str:
-        """Return what to write before a tag at this depth."""
+        """Return what to write before a tag at this depth, honoring inline blocks."""
         try:
             return self._prefixes[depth]
         except IndexError:

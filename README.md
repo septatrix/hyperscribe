@@ -13,6 +13,9 @@ navigation and content sections. The Jinja template lives in
 `src/bench/templates/articles.jinja2`; each renderer has its own module under
 `src/bench/renderers/`. Hyperscribe wraps the shared page container in a
 `@contextmanager` function and uses the standalone package in `src/hyperscribe/`.
+It renders each topic list on a single line with `doc.inline()`,
+which suppresses line breaks and indentation inside its block,
+so its output stays close to Jinja's.
 Tagflow is the unrelated [`tagflow`](https://pypi.org/project/tagflow/) package from PyPI,
 which builds an ElementTree through context managers backed by context variables.
 
