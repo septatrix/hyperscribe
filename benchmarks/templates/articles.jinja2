@@ -1,0 +1,28 @@
+{% extends "base.jinja2" %}
+
+{%- macro topic_list(topics) -%}
+<div>{% for topic in topics %}<span>{{ topic }}</span>{% if not loop.last %}, {% endif %}{% endfor %}</div>
+{%- endmacro %}
+
+{% block head %}<title>Articles</title>{% endblock %}
+
+{% block navigation %}
+  <nav>
+    <h2>Browse topics</h2>
+    {{ topic_list(topic_index) }}
+  </nav>
+{% endblock %}
+
+{% block content %}
+  <ul>
+{% for item in items %}    <li>
+      <a href="{{ item.url }}">{{ item.title }}</a>
+      <p>{{ item.summary }}</p>
+      {% if item.featured %}<strong>Featured</strong>{% endif %}
+      <span>{{ item.category }}</span>
+      {% if item.author %}<small><span>By {{ item.author }}</span></small>{% endif %}
+      {% if item.tags %}{{ topic_list(item.tags) }}{% endif %}
+      {% if item.comments %}<span>{{ item.comments }} comments</span>{% endif %}
+    </li>
+{% endfor %}  </ul>
+{% endblock %}

@@ -1,0 +1,47 @@
+#from benchmarks.cheetah_base import BasePage
+#extends BasePage
+
+#def topic_list($topics)
+<div>
+#for $index, $topic in enumerate($topics)
+  <span>$escape_text($topic)</span>
+#if $index < len($topics) - 1
+  ,
+#end if
+#end for
+</div>
+#end def
+#block head
+<title>Articles</title>
+#end block
+
+#block navigation
+  <nav>
+    <h2>Browse topics</h2>
+    $topic_list($topic_index)
+  </nav>
+#end block
+
+#block content
+  <ul>
+#for $item in $articles
+    <li>
+      <a href="$escape_attr($item['url'])">$escape_text($item['title'])</a>
+      <p>$escape_text($item['summary'])</p>
+#if $item['featured']
+      <strong>Featured</strong>
+#end if
+      <span>$escape_text($item['category'])</span>
+#if $item['author']
+      <small><span>By $escape_text($item['author'])</span></small>
+#end if
+#if $item['tags']
+      $topic_list($item['tags'])
+#end if
+#if $item['comments']
+      <span>$item['comments'] comments</span>
+#end if
+    </li>
+#end for
+  </ul>
+#end block
