@@ -17,7 +17,11 @@ uv add hyperscribe
 ```sh
 git clone https://github.com/septatrix/hyperscribe
 cd hyperscribe
-uv sync
-uv run pytest
-uv run sphinx-autobuild docs docs/_build/html
+make sync     # install dependencies
+make check    # lint, type-check, check formatting, and test
+make format   # format the code with ruff
+make docs     # build the documentation
 ```
+
+Run `make help` to list all targets.
+Use `uv run sphinx-autobuild docs docs/_build/html` to preview the docs while editing.

@@ -57,10 +57,14 @@ Full documentation is available at
 ## Development
 
 ```sh
-uv sync
-uv run pytest
-uv run sphinx-autobuild docs docs/_build/html
+make sync     # install dependencies
+make check    # lint, type-check, check formatting, and test
+make format   # format the code with ruff
+make docs     # build the documentation
 ```
+
+Run `make help` to list all targets.
+Use `uv run sphinx-autobuild docs docs/_build/html` to preview the docs while editing.
 
 The [benchmarks](benchmarks/README.md) compare hyperscribe with other Python HTML templating libraries
 using pytest-benchmark.

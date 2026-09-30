@@ -6,6 +6,15 @@ on:
   pull_request:
 
 jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@v6
+      - run: make lint format-check
+
   test:
     runs-on: ubuntu-latest
     strategy:
