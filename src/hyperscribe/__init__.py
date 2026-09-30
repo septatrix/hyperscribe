@@ -92,6 +92,10 @@ class DocWriter:
         self._tag_builders: dict[str, _TagBuilder] = {}
         self._indentation = "  "
         self._depth: int = 0
+        # Indentation by depth and the line ending written after each tag,
+        # like print().
+        self._end = "\n"
+        self._prefixes: list[str] = []
 
     def __getattr__(self, name: str) -> _TagBuilder:
         """Return a cached tag object usable directly or with attributes."""
@@ -135,27 +139,39 @@ class DocWriter:
             tuple(context.closings[0] for context in contexts),
         )
 
+    def _generate_prefix(self, depth: int) -> str:
+        """Return the prefix for a depth, extending the per-depth cache as needed."""
+        for missing in range(len(self._prefixes), depth + 1):
+            self._prefixes.append(self._indentation * missing)
+        return self._prefixes[depth]
+
+    def _prefix(self, depth: int) -> str:
+        """Return what to write before a tag at this depth."""
+        try:
+            return self._prefixes[depth]
+        except IndexError:
+            self._generate_prefix(depth)
+            return self._prefixes[depth]
+
     def _render_leaf(self, context: _TagContext, text: str) -> None:
         """Write shorthand leaf markup inline, without context manager allocation."""
-        prefix = "\n" + self._indentation * self._depth
+        prefix = self._prefix(self._depth)
         openings = "".join(context.openings)
         closings = "".join(reversed(context.closings))
-        self._write(f"{prefix}{openings}{_escape_text(text)}{closings}")
+        self._write(f"{prefix}{openings}{_escape_text(text)}{closings}{self._end}")
 
     def _open_tag(self, opening: str) -> None:
-        prefix = "\n" + self._indentation * self._depth
-        self._write(prefix + opening)
+        self._write(f"{self._prefix(self._depth)}{opening}{self._end}")
         self._depth += 1
 
     def _close_tag(self, closing: str) -> None:
         self._depth -= 1
-        prefix = "\n" + self._indentation * self._depth
-        self._write(prefix + closing)
+        self._write(f"{self._prefix(self._depth)}{closing}{self._end}")
 
     def write_raw(self, value: str) -> None:
         """Write unescaped text to the document, bypassing the escaping logic."""
         self._write(value)
 
     def text(self, value: str) -> None:
-        """Write escaped text to the document."""
-        self._write(_escape_text(value))
+        """Write escaped text to the document on its own line."""
+        self._write(f"{self._prefix(self._depth)}{_escape_text(value)}{self._end}")
