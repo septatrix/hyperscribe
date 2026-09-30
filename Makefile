@@ -17,7 +17,8 @@ docs: ## Build the HTML documentation into docs/_build/html
 
 lint: ## Lint with ruff and type-check with mypy
 	$(UV_RUN) ruff check .
-	$(UV_RUN) mypy
+	@# mypy needs the benchmark libraries installed to check their types
+	$(UV_RUN) --group benchmarks mypy
 
 format: ## Format the code with ruff
 	$(UV_RUN) ruff format .
