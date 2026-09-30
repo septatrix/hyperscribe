@@ -78,6 +78,7 @@ class _TagBuilder:
         self._context = self._doc._context_for(self._path)
 
     def __getattr__(self, name: str) -> _TagBuilder:
+        """Return a builder for a nested tag, such as ``body`` in ``doc.body.main``."""
         if name.startswith("_"):
             raise AttributeError(name)
         return _TagBuilder(self._doc, (*self._path, name))
@@ -91,6 +92,7 @@ class _TagBuilder:
     def __call__(
         self, content: str | None = None, /, **attrs: str
     ) -> AbstractContextManager[None] | None:
+        """Write a leaf element when given content, else return a context manager."""
         if content is not None:
             context = (
                 self._doc._context_for(self._path, **attrs) if attrs else self._context
@@ -151,6 +153,11 @@ class DocWriter:
         return _InlineContext(self)
 
     def tag(self, name: str, **attrs: str) -> _TagContext:
+        """Return a context manager for a tag with any name and attributes.
+
+        Use it for names or attributes that are not valid Python identifiers,
+        such as ``doc.tag("div", **{"class": "card"})``.
+        """
         if attrs:
             attributes = "".join(
                 f' {key}="{html.escape(value, quote=True)}"'

@@ -11,3 +11,9 @@ wheels/
 
 # mypyc generated files
 *.so
+
+# Sphinx
+docs/_build/
+
+# pytest-benchmark
+.benchmarks/
