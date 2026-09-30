@@ -4,7 +4,7 @@ from pathlib import Path
 
 from mako.lookup import TemplateLookup
 
-from benchmarks.models import Item
+from ..models import Item
 
 _template_directory = Path(__file__).parents[1] / "templates"
 _lookup = TemplateLookup(

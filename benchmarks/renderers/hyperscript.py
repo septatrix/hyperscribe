@@ -2,7 +2,7 @@
 
 from hyperscript import h
 
-from benchmarks.models import Item
+from ..models import Item
 
 
 def render_topic_list(topics: list[str]):

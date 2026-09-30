@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from benchmarks.models import Item
-from benchmarks.support import MEMORY_RESULTS, make_items
+from .models import Item
+from .support import MEMORY_RESULTS, make_items
 
 
 def pytest_addoption(parser: pytest.Parser) -> None:
@@ -33,5 +33,5 @@ def pytest_terminal_summary(terminalreporter: pytest.TerminalReporter) -> None:
             f"{name:<{name_width}}  {peak:>16,d}  {output_size:>12,d}"
         )
     terminalreporter.write_line(
-        "Peak memory is traced Python allocations only; native allocations are excluded."
+        "Peak memory counts traced Python allocations only, not native ones."
     )

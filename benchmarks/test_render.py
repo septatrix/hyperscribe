@@ -9,9 +9,9 @@ from __future__ import annotations
 
 import pytest
 
-from benchmarks.models import Item
-from benchmarks.renderers import RENDERERS, load_renderer
-from benchmarks.support import (
+from .models import Item
+from .renderers import RENDERERS, load_renderer
+from .support import (
     MEMORY_RESULTS,
     check_document,
     html_shape,

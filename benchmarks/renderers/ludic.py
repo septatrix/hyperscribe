@@ -8,7 +8,6 @@ from ludic.html import (
     div,
     h2,
     head,
-    html as html_element,
     li,
     main,
     nav,
@@ -19,13 +18,16 @@ from ludic.html import (
     title,
     ul,
 )
+from ludic.html import (
+    html as html_element,
+)
 
-from benchmarks.models import Item
+from ..models import Item
 
 
 def render_topic_list(topics: list[str]):
     """Create a topic-list element that can be inserted in multiple places."""
-    topic_children = []
+    topic_children: list[str | span] = []
     for index, topic in enumerate(topics):
         if index:
             topic_children.append(", ")
