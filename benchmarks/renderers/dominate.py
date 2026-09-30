@@ -3,7 +3,7 @@
 from dominate import tags
 from dominate.util import text as dominate_text
 
-from benchmarks.models import Item
+from ..models import Item
 
 
 def render_topic_list(topics: list[str]):

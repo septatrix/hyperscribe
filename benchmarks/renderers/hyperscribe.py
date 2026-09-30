@@ -4,8 +4,9 @@ from collections.abc import Iterator
 from io import StringIO
 from typing import Literal
 
-from benchmarks.models import Item
 from hyperscribe import DocWriter
+
+from ..models import Item
 
 
 def page(doc: DocWriter) -> Iterator[Literal["head", "navigation", "content"]]:

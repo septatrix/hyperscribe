@@ -2,7 +2,7 @@
 
 from xml.etree import ElementTree
 
-from benchmarks.models import Item
+from ..models import Item
 
 
 def render_topic_list(parent: ElementTree.Element, topics: list[str]) -> None:

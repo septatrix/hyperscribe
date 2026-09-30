@@ -4,7 +4,7 @@ from pathlib import Path
 
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
-from benchmarks.models import Item
+from ..models import Item
 
 _template_directory = Path(__file__).parents[1] / "templates"
 _environment = Environment(

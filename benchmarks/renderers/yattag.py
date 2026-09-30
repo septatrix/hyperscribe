@@ -2,7 +2,7 @@
 
 from yattag import FIRST_LINE, SimpleDoc, indent
 
-from benchmarks.models import Item
+from ..models import Item
 
 
 def render_topic_list(tag, text, topics: list[str]) -> None:

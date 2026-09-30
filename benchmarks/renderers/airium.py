@@ -4,7 +4,7 @@ import html
 
 from airium import Airium
 
-from benchmarks.models import Item
+from ..models import Item
 
 
 def render_topic_list(doc: Airium, topics: list[str]) -> None:
@@ -45,7 +45,9 @@ def render(items: list[Item]) -> str:
                                 doc(item["category"])
                             if item["author"]:
                                 with doc.small(), doc.span():
-                                    doc(f"By {html.escape(item['author'], quote=False)}")
+                                    doc(
+                                        f"By {html.escape(item['author'], quote=False)}"
+                                    )
                             if item["tags"]:
                                 render_topic_list(doc, item["tags"])
                             if item["comments"]:

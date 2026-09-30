@@ -6,7 +6,7 @@ import tracemalloc
 from collections.abc import Callable
 from html.parser import HTMLParser
 
-from benchmarks.models import Item
+from .models import Item
 
 Renderer = Callable[[list[Item]], str]
 

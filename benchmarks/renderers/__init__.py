@@ -3,7 +3,7 @@
 from collections.abc import Callable
 from importlib import import_module
 
-from benchmarks.models import Item
+from ..models import Item
 
 # Modules are imported on demand so that running one renderer does not require
 # every other library to be importable.
@@ -24,4 +24,4 @@ RENDERERS = {
 
 def load_renderer(name: str) -> Callable[[list[Item]], str]:
     """Import and return the ``render`` function of the named renderer."""
-    return import_module(f"benchmarks.renderers.{RENDERERS[name]}").render
+    return import_module(f".{RENDERERS[name]}", __package__).render
