@@ -45,7 +45,11 @@ packages = ["src/hyperscribe"]
 include = ["src/hyperscribe", "tests", "README.md", "docs"]
 
 [dependency-groups]
-dev = ["pytest>=8"]
+dev = [
+    "mypy>=1.13",
+    "pytest>=8",
+    "ruff>=0.8",
+]
 docs = [
     "furo>=2024.8.6",
     "myst-parser>=4",
@@ -73,3 +77,28 @@ default-groups = ["dev", "docs"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.ruff]
+src = ["src", "."]
+extend-exclude = ["benchmarks/generated_jinja.py"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
+
+[tool.mypy]
+python_version = "3.10"
+strict = true
+files = ["src", "tests", "benchmarks"]
+exclude = ["benchmarks/generated_jinja\\.py"]
+mypy_path = "src"
+
+[[tool.mypy.overrides]]
+module = ["benchmarks.*"]
+disallow_untyped_defs = false
+disallow_incomplete_defs = false
+disallow_untyped_calls = false
+warn_return_any = false
+
+[[tool.mypy.overrides]]
+module = ["Cheetah.*", "dominate.*", "hyperscript.*", "mako.*"]
+ignore_missing_imports = true

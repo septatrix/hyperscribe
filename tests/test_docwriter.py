@@ -1,9 +1,10 @@
+from collections.abc import Callable
 from io import StringIO
 
 from hyperscribe import DocWriter
 
 
-def render(build) -> str:
+def render(build: Callable[[DocWriter], object]) -> str:
     output = StringIO()
     build(DocWriter(output))
     return output.getvalue()
