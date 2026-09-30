@@ -45,7 +45,7 @@ uv run --group benchmarks pytest benchmarks \
     --benchmark-save=baseline
 ```
 
-`--benchmark-skip` runs only the output checks
+`--benchmark-skip` runs only the output and memory checks
 and `--benchmark-only` runs only the timings.
 
 ## Rendering
@@ -57,9 +57,9 @@ while ignoring indentation-only whitespace,
 because formatters lay out whitespace differently.
 `test_render` then times the render,
 excluding input construction and Jinja template compilation.
-Each benchmark also records the output size and the peak traced Python memory of one render
-in its `extra_info`, which is included in saved JSON results
-(`--benchmark-json=results.json`).
+`test_memory` measures the peak traced Python memory of one render
+after a warm-up render
+and, like the output size, prints it in a table after the timing results.
 `tracemalloc` does not include native allocations.
 
 To regenerate Jinja's generated Python source for inspection, run:
