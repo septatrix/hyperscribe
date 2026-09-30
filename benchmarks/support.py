@@ -10,6 +10,10 @@ from benchmarks.models import Item
 
 Renderer = Callable[[list[Item]], str]
 
+# Filled by ``test_memory`` and printed by the terminal summary in ``conftest``:
+# renderer name -> (peak traced memory of one render, output size), in bytes.
+MEMORY_RESULTS: dict[str, tuple[int, int]] = {}
+
 
 class _HTMLShape(HTMLParser):
     """Collect rendered tags, attributes, and text without indentation whitespace."""

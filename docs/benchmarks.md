@@ -19,5 +19,5 @@ and require Python 3.14.
 
 Every renderer is first checked to produce the same document.
 The report then shows the timing statistics for each library,
-and the peak traced Python memory and output size are saved in each result's `extra_info`.
+followed by a table of the peak traced Python memory and output size of one render.
 See `benchmarks/README.md` in the repository for the methodology.
