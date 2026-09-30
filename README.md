@@ -1,68 +1,87 @@
-# Python HTML templating benchmark
+# hyperscribe
 
-This project compares rendering the same article list with Jinja, Mako,
-Cheetah3, Airium, Yattag, dominate, Ludic, Hyperscript, Tagflow, Hyperscribe,
-and `xml.etree.ElementTree`. The template includes
-conditional featured badges, optional authors, tag loops, and comment counts.
-It also renders a reusable topic-list component in the page navigation and for
-each article with tags. Jinja defines the component as a macro; each Python
-renderer exposes and calls a matching helper function.
-The default workload contains 500 articles and varies the data to exercise each
-branch. Jinja, Mako, and Cheetah3 each use a base template with overridable
-navigation and content sections. The Jinja template lives in
-`src/bench/templates/articles.jinja2`; each renderer has its own module under
-`src/bench/renderers/`. Hyperscribe wraps the shared page container in a
-`@contextmanager` function and uses the standalone package in `src/hyperscribe/`.
-It renders each topic list on a single line with `doc.inline()`,
-which suppresses line breaks and indentation inside its block,
-so its output stays close to Jinja's.
-Tagflow is the unrelated [`tagflow`](https://pypi.org/project/tagflow/) package from PyPI,
-which builds an ElementTree through context managers backed by context variables.
+A small, dependency-free HTML templating engine for Python.
+You write markup as ordinary Python code with context managers,
+and hyperscribe streams escaped, indented HTML to any file-like object.
 
-Install the project and run the benchmark:
+```python
+from io import StringIO
+
+from hyperscribe import DocWriter
+
+output = StringIO()
+doc = DocWriter(output)
+
+with doc.html(lang="en"):
+    with doc.body.main:
+        doc.h1("Hello & welcome")
+        with doc.ul:
+            for name in ("one", "two"):
+                doc.li(name)
+
+print(output.getvalue())
+```
+
+```html
+<html lang="en">
+  <body>
+    <main>
+      <h1>Hello &amp; welcome</h1>
+      <ul>
+        <li>one</li>
+        <li>two</li>
+      </ul>
+    </main>
+  </body>
+</html>
+```
+
+## Features
+
+- Templates are plain Python: use loops, functions, and `@contextmanager` layouts.
+- Text and attribute values are escaped by default.
+- Output is streamed to anything with a `write(str)` method.
+- No dependencies, fully typed, and supports Python 3.10 and newer.
+
+## Installation
+
+```sh
+pip install hyperscribe
+```
+
+## Documentation
+
+Full documentation is available at
+<https://septatrix.github.io/hyperscribe/>.
+
+## Development
 
 ```sh
 uv sync
-uv run benchmark-templates
+uv run pytest
+uv run sphinx-autobuild docs docs/_build/html
 ```
 
-You can adjust the workload and sample count:
+The [benchmarks](benchmarks/README.md) compare hyperscribe with other Python HTML templating libraries
+using pytest-benchmark.
+Their dependencies live in the optional `benchmarks` dependency group
+and need Python 3.14:
 
 ```sh
-uv run benchmark-templates --items 1000 --rounds 50 --warmup 5
+uv run --group benchmarks pytest benchmarks
 ```
 
-Select renderers with `--include` or skip some with `--exclude`:
+## Releasing
 
-```sh
-uv run benchmark-templates --include Jinja Hyperscript
-uv run benchmark-templates --exclude Hyperscribe Ludic
-```
+The version is derived from git tags by `hatch-vcs`.
+To release, publish a GitHub release whose tag is `v` plus the version, such as `v0.2.0`.
+The `Publish` workflow builds the package
+and uploads it to PyPI through
+[trusted publishing](https://docs.pypi.org/trusted-publishers/).
+Copy the files in `contrib/workflows/` to `.github/workflows/` once,
+using a credential that may edit workflows.
 
-The report shows median wall-clock time and peak traced Python memory per
-document. Input construction and Jinja template compilation are excluded; each
-library is warmed up before samples are collected. Formatters may lay out
-whitespace differently, so output validation compares tags, attributes, and
-visible text while ignoring indentation-only whitespace. `tracemalloc` does
-not include native allocations.
+## Status
 
-To regenerate Jinja's generated Python source for inspection, run:
-
-```sh
-uv run compile-jinja-template
-```
-
-The generated source is saved in `src/bench/generated_jinja.py`. It shows the
-Python function Jinja compiles for `articles.jinja2`; the benchmark still uses
-Jinja's normal `Template.render()` path.
-
-To compare text and attribute escaping independently of document rendering,
-run:
-
-```sh
-uv run benchmark-escaping
-```
-
-This uses `timeit` to compare `html.escape`, chained `str.replace`, and a
-precomputed `str.maketrans` table with `str.translate`. Use `--number` and
-`--repeat` to adjust the measurement length and sample count.
+hyperscribe is in early development
+and its API may change between minor releases.
