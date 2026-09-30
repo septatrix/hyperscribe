@@ -1,58 +1,50 @@
-"""Article-list renderer using the stream-backed Tagflow package."""
+"""Article-list renderer implemented with the Tagflow package from PyPI."""
 
-from collections.abc import Iterator
-from io import StringIO
-from typing import Literal
+from tagflow import document, tag, text
 
 from bench.models import Item
-from tagflow import DocWriter
 
 
-def page(doc: DocWriter) -> Iterator[Literal["head", "navigation", "content"]]:
-    """Provide the document shell and yield its replaceable content sections."""
-    with doc.html(lang="en"):
-        with doc.head:
-            yield "head"
-        with doc.body.main:
-            with doc.nav:
-                yield "navigation"
-            with doc.ul:
-                yield "content"
-
-
-def render_topic_list(doc: DocWriter, topics: list[str]) -> None:
-    """Append topic markup to the active writer-backed document."""
-    with doc.div:
+def render_topic_list(topics: list[str]) -> None:
+    """Append a topic list to the element that is currently open."""
+    with tag.div():
         for index, topic in enumerate(topics):
             if index:
-                doc(", ")
-            doc.span(topic)
+                text(", ")
+            with tag.span():
+                text(topic)
 
 
 def render(items: list[Item]) -> str:
-    output = StringIO()
-    doc = DocWriter(output)
     topic_index = sorted({topic for item in items for topic in item["tags"]})
-    doc.write_raw("<!DOCTYPE html>")
-    for block in page(doc):
-        match block:
-            case "head":
-                doc.title("Articles")
-            case "navigation":
-                doc.h2("Browse topics")
-                render_topic_list(doc, topic_index)
-            case "content":
-                for item in items:
-                    with doc.li:
-                        doc.a(item["title"], href=item["url"])
-                        doc.p(item["summary"])
-                        if item["featured"]:
-                            doc.strong("Featured")
-                        doc.span(item["category"])
-                        if item["author"]:
-                            doc.small.span(f"By {item['author']}")
-                        if item["tags"]:
-                            render_topic_list(doc, item["tags"])
-                        if item["comments"]:
-                            doc.span(f"{item['comments']} comments")
-    return output.getvalue()
+    with document() as root:
+        with tag.html(lang="en"):
+            with tag.head():
+                with tag.title():
+                    text("Articles")
+            with tag.body(), tag.main():
+                with tag.nav():
+                    with tag.h2():
+                        text("Browse topics")
+                    render_topic_list(topic_index)
+                with tag.ul():
+                    for item in items:
+                        with tag.li():
+                            with tag.a(href=item["url"]):
+                                text(item["title"])
+                            with tag.p():
+                                text(item["summary"])
+                            if item["featured"]:
+                                with tag.strong():
+                                    text("Featured")
+                            with tag.span():
+                                text(item["category"])
+                            if item["author"]:
+                                with tag.small(), tag.span():
+                                    text(f"By {item['author']}")
+                            if item["tags"]:
+                                render_topic_list(item["tags"])
+                            if item["comments"]:
+                                with tag.span():
+                                    text(f"{item['comments']} comments")
+    return "<!DOCTYPE html>" + root.to_html()

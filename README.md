@@ -1,8 +1,8 @@
 # Python HTML templating benchmark
 
 This project compares rendering the same article list with Jinja, Mako,
-Cheetah3, Airium, Yattag, dominate, Ludic, Hyperscript, and
-`xml.etree.ElementTree`. The template includes
+Cheetah3, Airium, Yattag, dominate, Ludic, Hyperscript, Tagflow, Hyperscribe,
+and `xml.etree.ElementTree`. The template includes
 conditional featured badges, optional authors, tag loops, and comment counts.
 It also renders a reusable topic-list component in the page navigation and for
 each article with tags. Jinja defines the component as a macro; each Python
@@ -11,8 +11,10 @@ The default workload contains 500 articles and varies the data to exercise each
 branch. Jinja, Mako, and Cheetah3 each use a base template with overridable
 navigation and content sections. The Jinja template lives in
 `src/bench/templates/articles.jinja2`; each renderer has its own module under
-`src/bench/renderers/`. Tagflow wraps the shared page container in a
-`@contextmanager` function and uses the standalone package in `src/tagflow/`.
+`src/bench/renderers/`. Hyperscribe wraps the shared page container in a
+`@contextmanager` function and uses the standalone package in `src/hyperscribe/`.
+Tagflow is the unrelated [`tagflow`](https://pypi.org/project/tagflow/) package from PyPI,
+which builds an ElementTree through context managers backed by context variables.
 
 Install the project and run the benchmark:
 
@@ -31,7 +33,7 @@ Select renderers with `--include` or skip some with `--exclude`:
 
 ```sh
 uv run benchmark-templates --include Jinja Hyperscript
-uv run benchmark-templates --exclude Tagflow Ludic
+uv run benchmark-templates --exclude Hyperscribe Ludic
 ```
 
 The report shows median wall-clock time and peak traced Python memory per
