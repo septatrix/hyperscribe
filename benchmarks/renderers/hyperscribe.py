@@ -54,7 +54,7 @@ def render(items: list[Item]) -> str:
                 for item in items:
                     with doc.li(
                         class_="featured" if item["featured"] else None,
-                        data_category=item["category"],
+                        data={"category": item["category"]},
                         hidden=item["draft"],
                     ):
                         doc.comment(f"article {item['id']}")
