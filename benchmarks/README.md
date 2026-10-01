@@ -28,7 +28,7 @@ so its output stays close to Jinja's.
 It also uses the attribute and content handling of the package:
 `None` omits an optional attribute,
 `True` writes a boolean attribute,
-`class_` and `data_category` become `class` and `data-category`,
+`class_` becomes `class`, `data={"category": ...}` becomes `data-category`,
 numbers are written as content and attributes without `str()`,
 and `doc.void_tag` and `doc.comment` write the void elements and the comments.
 Tagflow is the unrelated [`tagflow`](https://pypi.org/project/tagflow/) package from PyPI,
