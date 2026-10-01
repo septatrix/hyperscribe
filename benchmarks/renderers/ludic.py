@@ -1,6 +1,7 @@
 """Article-list renderer implemented with Ludic."""
 
 import html
+from typing import Any
 
 from ludic.html import (
     a,
@@ -44,11 +45,11 @@ def render(items: list[Item]) -> str:
     topic_nav = nav(h2("Browse topics"), render_topic_list(topic_index))
     entries = []
     for item in items:
-        link_attributes = {"href": item["url"]}
+        link_attributes: dict[str, Any] = {"href": item["url"]}
         if item["external"]:
             link_attributes["target"] = "_blank"
             link_attributes["rel"] = "noopener"
-        children = [
+        children: list[Any] = [
             f"<!-- article {item['id']} -->",
             img(
                 src=item["thumbnail"],
@@ -72,7 +73,7 @@ def render(items: list[Item]) -> str:
             children.append(render_topic_list(item["tags"]))
         if item["comments"]:
             children.append(span(f"{item['comments']} comments"))
-        item_attributes = {"data-category": item["category"]}
+        item_attributes: dict[str, Any] = {"data-category": item["category"]}
         if item["featured"]:
             item_attributes["class_"] = "featured"
         if item["draft"]:

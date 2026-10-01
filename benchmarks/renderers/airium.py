@@ -1,6 +1,7 @@
 """Article-list renderer implemented with Airium."""
 
 import html
+from typing import Any
 
 from airium import Airium
 
@@ -28,7 +29,7 @@ def render(items: list[Item]) -> str:
             doc.meta(charset="utf-8")
             doc.meta(name="viewport", content="width=device-width, initial-scale=1")
             doc.link(rel="stylesheet", href="/static/site.css")
-            with doc.script(src="/static/app.js", defer=True):
+            with doc.script(src="/static/app.js", defer="defer"):
                 pass
         with doc.body():
             with doc.main():
@@ -38,12 +39,14 @@ def render(items: list[Item]) -> str:
                     render_topic_list(doc, topic_index)
                 with doc.ul():
                     for item in items:
-                        item_attributes = {"data-category": item["category"]}
+                        item_attributes: dict[str, Any] = {
+                            "data-category": item["category"]
+                        }
                         if item["featured"]:
                             item_attributes["class"] = "featured"
                         if item["draft"]:
                             item_attributes["hidden"] = True
-                        link_attributes = {"href": item["url"]}
+                        link_attributes: dict[str, Any] = {"href": item["url"]}
                         if item["external"]:
                             link_attributes["target"] = "_blank"
                             link_attributes["rel"] = "noopener"
@@ -66,7 +69,7 @@ def render(items: list[Item]) -> str:
                             with doc.span():
                                 doc(item["category"])
                             with doc.span(klass="rating"):
-                                doc(item["rating"])
+                                doc(str(item["rating"]))
                             if item["author"]:
                                 with doc.small(), doc.span():
                                     doc(
