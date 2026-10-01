@@ -16,6 +16,8 @@ doc = DocWriter(output)
 ```
 
 Accessing an attribute on the writer, such as `doc.div`, gives you a tag.
+For names that are not valid Python identifiers, subscript the writer instead,
+as in `doc["my-element"]`.
 Tags are used in one of two ways.
 
 ### Leaf tags
@@ -135,6 +137,23 @@ with doc.body.main:
 Chained tags work for leaves, too.
 `doc.small.span("hi", title="t")` produces `<small><span title="t">hi</span></small>`,
 with the attributes applied to the innermost tag.
+
+Calling a tag with attributes but no content gives a new tag,
+so attributes can also be set partway along a chain:
+
+```python
+with doc.div.div(class_="x").div:
+    doc("t")
+# <div>
+#   <div class="x">
+#     <div>
+#       t
+#     </div>
+#   </div>
+# </div>
+```
+
+Subscripting works anywhere in a chain, as in `doc.div["my-element"]`.
 
 ## Text
 

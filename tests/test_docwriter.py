@@ -55,17 +55,80 @@ def test_chained_leaf_with_attributes() -> None:
     assert result == '<small><span title="t">hi</span></small>\n'
 
 
-@pytest.mark.filterwarnings("ignore:Use doc.* instead:DeprecationWarning")
-def test_tag_method_supports_arbitrary_names() -> None:
+def test_subscription_supports_arbitrary_names() -> None:
     def build(doc: DocWriter) -> None:
-        with doc.tag("my-element", id="1"):
-            doc.text("t")
+        with doc["my-element"](id="1"):
+            doc["x-y"]("t")
 
-    assert render(build) == '<my-element id="1">\n  t\n</my-element>\n'
+    assert render(build) == '<my-element id="1">\n  <x-y>t</x-y>\n</my-element>\n'
+
+
+def test_subscription_chains_from_tags() -> None:
+    result = render(lambda doc: doc.div["my-element"].span("t"))
+    assert result == "<div><my-element><span>t</span></my-element></div>\n"
+
+
+def test_private_names_are_not_tags() -> None:
+    doc = DocWriter(StringIO())
+    with pytest.raises(AttributeError):
+        doc._missing  # noqa: B018
+    with pytest.raises(AttributeError):
+        doc.div._missing  # noqa: B018
+
+
+def test_tag_method_is_deprecated() -> None:
+    def build(doc: DocWriter) -> None:
+        with pytest.deprecated_call(), doc.tag("my-element", id="1"):
+            pass
+
+    assert render(build) == '<my-element id="1">\n</my-element>\n'
+
+
+def test_tags_are_cached() -> None:
+    doc = DocWriter(StringIO())
+    assert doc.div is doc.div
+    assert doc.body.main is doc.body.main
+    assert doc["my-element"] is doc["my-element"]
+
+
+def test_chaining_does_not_change_the_parent() -> None:
+    def build(doc: DocWriter) -> None:
+        body = doc.body
+        with body.main:
+            pass
+        with body:
+            pass
+
+    assert render(build) == "<body>\n  <main>\n  </main>\n</body>\n<body>\n</body>\n"
 
 
 def test_call_writes_trusted_text_verbatim() -> None:
     assert render(lambda doc: doc("1 < 2")) == "1 < 2\n"
+
+
+def test_attributes_apply_in_the_middle_of_a_chain() -> None:
+    def build(doc: DocWriter) -> None:
+        with doc.div.div(class_="x").div:
+            doc("t")
+
+    assert render(build) == (
+        '<div>\n  <div class="x">\n    <div>\n      t\n    </div>\n  </div>\n</div>\n'
+    )
+
+
+def test_attributes_do_not_leak_into_cached_tags() -> None:
+    def build(doc: DocWriter) -> None:
+        doc.div.span(class_="x").b("t")
+        doc.div.span.b("t")
+
+    assert render(build) == (
+        '<div><span class="x"><b>t</b></span></div>\n<div><span><b>t</b></span></div>\n'
+    )
+
+
+def test_repeated_calls_add_attributes() -> None:
+    result = render(lambda doc: doc.a(href="/")("Home", class_="nav"))
+    assert result == '<a href="/" class="nav">Home</a>\n'
 
 
 def test_call_writes_html_protocol_content_verbatim() -> None:
@@ -194,9 +257,9 @@ def test_attribute_names_apply_to_context_managers() -> None:
     assert render(build) == '<div class="card" data-id="7">\n  <p>x</p>\n</div>\n'
 
 
-def test_attribute_names_apply_to_tag_method() -> None:
+def test_attribute_names_apply_to_subscripted_tags() -> None:
     def build(doc: DocWriter) -> None:
-        with doc.tag("my-element", class_="x"):
+        with doc["my-element"](class_="x"):
             pass
 
     assert render(build) == '<my-element class="x">\n</my-element>\n'
@@ -227,9 +290,9 @@ def test_empty_string_content_writes_an_empty_element() -> None:
     assert render(lambda doc: doc.div("")) == "<div></div>\n"
 
 
-def test_tag_method_accepts_a_name_attribute() -> None:
+def test_tags_accept_a_name_attribute() -> None:
     def build(doc: DocWriter) -> None:
-        with doc.tag("label", name="viewport"):
+        with doc.label(name="viewport"):
             pass
 
     assert render(build) == '<label name="viewport">\n</label>\n'

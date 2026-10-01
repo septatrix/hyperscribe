@@ -89,28 +89,6 @@ def _format_attributes(attrs: dict[str, AttributeValue], prefix: str = "") -> st
 
 
 @dataclass(slots=True)
-class _TagContext:
-    """Write a tag while the document tracks its nesting for indentation."""
-
-    doc: DocWriter
-    openings: tuple[str, ...]
-    closings: tuple[str, ...]
-
-    def __enter__(self) -> None:
-        for opening in self.openings:
-            self.doc._open_tag(opening)
-
-    def __exit__(
-        self,
-        exc_type: type[BaseException] | None,
-        exc_value: BaseException | None,
-        traceback: TracebackType | None,
-    ) -> None:
-        for closing in reversed(self.closings):
-            self.doc._close_tag(closing)
-
-
-@dataclass(slots=True)
 class _InlineContext:
     """Write everything in the block on one line, indented once and ended once."""
 
@@ -140,48 +118,72 @@ class _InlineContext:
 
 @dataclass(slots=True)
 class _TagBuilder:
-    """Represent a tag, usable directly or with attributes supplied by a call."""
+    """Represent a chain of tags, usable directly or with attributes supplied by a call.
+
+    Builders are immutable, so they can be cached and nested inside themselves.
+    """
 
     _doc: DocWriter
-    _path: tuple[str, ...]
-    _context: _TagContext = field(init=False)
-
-    def __post_init__(self) -> None:
-        self._context = self._doc._context_for(self._path)
+    _openings: tuple[str, ...]
+    _closings: tuple[str, ...]
+    _children: dict[str, _TagBuilder] | None = field(default=None, repr=False)
 
     def __getattr__(self, name: str) -> _TagBuilder:
-        """Return a builder for a nested tag, such as ``body`` in ``doc.body.main``."""
+        """Return a builder for a nested tag, such as ``main`` in ``doc.body.main``."""
         if name.startswith("_"):
             raise AttributeError(name)
-        return _TagBuilder(self._doc, (*self._path, name))
+        return self[name]
+
+    def __getitem__(self, name: str) -> _TagBuilder:
+        """Return a builder for a nested tag, as in ``doc.div["x-y"]``."""
+        children = self._children
+        if children is None:
+            children = self._children = {}
+        elif child := children.get(name):
+            return child
+        child = children[name] = _TagBuilder(
+            self._doc,
+            (*self._openings, f"<{name}>"),
+            (*self._closings, f"</{name}>"),
+        )
+        return child
 
     @overload
-    def __call__(self, /, **attrs: AttributeValue) -> AbstractContextManager[None]: ...
+    def __call__(self, /, **attrs: AttributeValue) -> _TagBuilder: ...
 
     @overload
     def __call__(self, content: object, /, **attrs: AttributeValue) -> None: ...
 
     def __call__(
         self, content: object = _MISSING, /, **attrs: AttributeValue
-    ) -> AbstractContextManager[None] | None:
-        """Write a leaf element when given content, else return a context manager.
+    ) -> _TagBuilder | None:
+        """Write a leaf element when given content, else return a builder.
 
+        Attributes are added to the innermost tag,
+        after any it was given by an earlier call.
         Content that is not a string is converted with :class:`str`.
         ``None`` is rejected with a :class:`TypeError`
         instead of being mistaken for missing content.
         """
-        if content is not _MISSING:
-            context = (
-                self._doc._context_for(self._path, **attrs) if attrs else self._context
+        openings = self._openings
+        if attrs:
+            openings = (
+                *openings[:-1],
+                f"{openings[-1][:-1]}{_format_attributes(attrs)}>",
             )
-            self._doc._render_leaf(
-                context, content if type(content) is str else _to_text(content)
-            )
-            return None
-        return self._doc._context_for(self._path, **attrs)
+        if content is _MISSING:
+            return _TagBuilder(self._doc, openings, self._closings) if attrs else self
+        self._doc._render_leaf(
+            openings,
+            self._closings,
+            content if type(content) is str else _to_text(content),
+        )
+        return None
 
     def __enter__(self) -> None:
-        return self._context.__enter__()
+        open_tag = self._doc._open_tag
+        for opening in self._openings:
+            open_tag(opening)
 
     def __exit__(
         self,
@@ -189,7 +191,9 @@ class _TagBuilder:
         exc_value: BaseException | None,
         traceback: TracebackType | None,
     ) -> None:
-        self._context.__exit__(exc_type, exc_value, traceback)
+        close_tag = self._doc._close_tag
+        for closing in reversed(self._closings):
+            close_tag(closing)
 
 
 class DocWriter:
@@ -197,8 +201,9 @@ class DocWriter:
 
     def __init__(self, writer: TextIO) -> None:
         self._write = writer.write
-        self._tags: dict[str, _TagContext] = {}
-        self._tag_builders: dict[str, _TagBuilder] = {}
+        # An empty chain that is never written itself; its children are the
+        # top-level tags, so it doubles as their cache.
+        self._root = _TagBuilder(self, (), ())
         self._indentation = "  "
         self._depth: int = 0
         # Indentation by depth and the line ending written after each tag, like
@@ -212,11 +217,14 @@ class DocWriter:
         """Return a cached tag object usable directly or with attributes."""
         if name.startswith("_"):
             raise AttributeError(name)
+        return self[name]
 
-        tag_builders = self._tag_builders
-        if name not in tag_builders:
-            tag_builders[name] = _TagBuilder(self, (name,))
-        return tag_builders[name]
+    def __getitem__(self, name: str) -> _TagBuilder:
+        """Return a cached tag object for any name, such as ``doc["my-element"]``.
+
+        Use it for names that are not valid Python identifiers.
+        """
+        return self._root[name]
 
     def __call__(self, value: TrustedContent) -> None:
         """Write trusted content verbatim, preserving the current indentation.
@@ -242,31 +250,13 @@ class DocWriter:
         """
         return _InlineContext(self)
 
-    def tag(self, name: str, /, **attrs: AttributeValue) -> _TagContext:
-        """Return a context manager for a tag with any name and attributes.
+    @deprecated("Use doc[name](...) instead")
+    def tag(self, name: str, /, **attrs: AttributeValue) -> _TagBuilder:
+        """Return a tag with any name and attributes.
 
-        Use it for names that are not valid Python identifiers,
-        such as ``doc.tag("my-element")``.
-        The name is positional-only, so ``name`` is free to be an attribute.
-
-        A trailing underscore is dropped from attribute names,
-        so ``class_="card"`` gives ``class="card"``.
-        A dictionary is flattened with its name as a prefix,
-        so ``data={"id": 7}`` gives ``data-id="7"``
-        and ``aria={"label": "Close"}`` gives ``aria-label="Close"``.
-        Use dictionary unpacking for other names this cannot express,
-        such as ``**{"xml:lang": "en"}``.
+        Equivalent to ``doc[name](**attrs)``, which should be used instead.
         """
-        if attrs:
-            attributes = _format_attributes(attrs)
-            return _TagContext(self, (f"<{name}{attributes}>",), (f"</{name}>",))
-
-        if context := self._tags.get(name):
-            return context
-
-        context = _TagContext(self, (f"<{name}>",), (f"</{name}>",))
-        self._tags[name] = context
-        return context
+        return self[name](**attrs)
 
     def void_tag(self, name: str, /, **attrs: AttributeValue) -> None:
         """Write a void element such as ``<br>`` or ``<img>`` on its own line.
@@ -290,21 +280,6 @@ class DocWriter:
             raise ValueError(f"text cannot be written in a comment: {text!r}")
         self._write(f"{self._prefix(self._depth)}<!-- {text} -->{self._end}")
 
-    def _context_for(
-        self, path: tuple[str, ...], /, **attrs: AttributeValue
-    ) -> _TagContext:
-        """Make a context manager for a tag chain, adding attributes to its leaf."""
-        if len(path) == 1:
-            return self.tag(path[0], **attrs)
-
-        contexts = [self.tag(name) for name in path[:-1]]
-        contexts.append(self.tag(path[-1], **attrs))
-        return _TagContext(
-            self,
-            tuple(context.openings[0] for context in contexts),
-            tuple(context.closings[0] for context in contexts),
-        )
-
     def _generate_prefix(self, depth: int) -> str:
         """Return the prefix for a depth, extending the per-depth caches as needed."""
         self._line_prefixes.append(self._indentation * depth)
@@ -319,12 +294,14 @@ class DocWriter:
             self._generate_prefix(depth)
             return self._prefixes[depth]
 
-    def _render_leaf(self, context: _TagContext, text: str) -> None:
-        """Write shorthand leaf markup inline, without context manager allocation."""
+    def _render_leaf(
+        self, openings: tuple[str, ...], closings: tuple[str, ...], text: str
+    ) -> None:
+        """Write shorthand leaf markup on one line, escaping the text."""
         prefix = self._prefix(self._depth)
-        openings = "".join(context.openings)
-        closings = "".join(reversed(context.closings))
-        self._write(f"{prefix}{openings}{_escape_text(text)}{closings}{self._end}")
+        opening = "".join(openings)
+        closing = "".join(reversed(closings))
+        self._write(f"{prefix}{opening}{_escape_text(text)}{closing}{self._end}")
 
     def _open_tag(self, opening: str) -> None:
         self._write(f"{self._prefix(self._depth)}{opening}{self._end}")
