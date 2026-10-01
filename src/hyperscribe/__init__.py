@@ -67,6 +67,7 @@ def _format_attributes(attrs: dict[str, AttributeValue]) -> str:
     return "".join(parts)
 
 
+@lru_cache(maxsize=1024)
 def _check_tag_name(name: str) -> None:
     if _INVALID_NAME.search(name):
         raise ValueError(f"invalid tag name: {name!r}")
@@ -158,7 +159,9 @@ class _TagBuilder:
             context = (
                 self._doc._context_for(self._path, **attrs) if attrs else self._context
             )
-            self._doc._render_leaf(context, _to_text(content))
+            self._doc._render_leaf(
+                context, content if type(content) is str else _to_text(content)
+            )
             return None
         return self._doc._context_for(self._path, **attrs)
 
@@ -320,5 +323,7 @@ class DocWriter:
         but ``None`` raises a :class:`TypeError`.
         """
         self._write(
-            f"{self._prefix(self._depth)}{_escape_text(_to_text(value))}{self._end}"
+            f"{self._prefix(self._depth)}"
+            f"{_escape_text(value if type(value) is str else _to_text(value))}"
+            f"{self._end}"
         )
