@@ -183,6 +183,7 @@ t.span(user.name)
 Calling the writer directly writes trusted content verbatim,
 with the current indentation and line ending.
 Its type annotation accepts {class}`typing.LiteralString`,
+{data}`~hyperscribe.SafeStr`,
 values implementing ``__html__`` (such as MarkupSafe's ``Markup``),
 and ``int`` or ``float`` values:
 
@@ -194,15 +195,15 @@ with t.p:
     doc(" text")  # LiteralString: written verbatim
 ```
 
-The ``__html__`` protocol and {class}`typing.LiteralString` are trust declarations;
+These types are trust declarations;
 only use them for content that is safe to include as HTML.
 A type checker rejects other strings,
 such as those built with an f-string from user input.
-To write such a string without a tag around it, escape it first,
-for example with MarkupSafe, whose result implements ``__html__``:
+To write such a string without a tag around it,
+pass it through {func}`~hyperscribe.escape` first:
 
 ```python
-from markupsafe import escape
+from hyperscribe import escape
 
 with doc.inline(), t.p:
     doc("Hello, ")
@@ -210,11 +211,30 @@ with doc.inline(), t.p:
 # <p>Hello, Ada &amp; co</p>
 ```
 
+For a dynamic string that is already valid HTML,
+such as markup read from a trusted file,
+{func}`~hyperscribe.trust` marks it as safe without escaping it:
+
+```python
+from pathlib import Path
+
+from hyperscribe import trust
+
+doc(trust(Path("footer.html").read_text()))
+```
+
+Both return a {data}`~hyperscribe.SafeStr`.
+It only exists for type checkers and is a plain {class}`str` at runtime,
+so tag content and attribute values are still escaped:
+`t.p(trust("<b>"))` writes `<p>&lt;b&gt;</p>`.
+They are a minimal alternative to MarkupSafe,
+which works the same way with `doc(...)`.
+
 ```{note}
 {meth}`~hyperscribe.DocWriter.text` and {meth}`~hyperscribe.DocWriter.write_raw`
 are deprecated.
 Use `doc(...)` for trusted content, including a doctype,
-and tag content or an escaped value for anything else.
+and tag content or `doc(escape(value))` for anything else.
 ```
 
 ### Inline formatting

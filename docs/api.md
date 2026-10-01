@@ -6,6 +6,16 @@
 .. autoclass:: hyperscribe.DocWriter
    :members: tags, voids, parts, comment, inline, text, write_raw, tag, void_tag
    :special-members: __call__
+
+.. autofunction:: hyperscribe.escape
+
+.. autofunction:: hyperscribe.trust
+
+.. autodata:: hyperscribe.SafeStr
+   :annotation:
+
+.. autodata:: hyperscribe.TrustedContent
+   :annotation:
 ```
 
 ## Tag objects

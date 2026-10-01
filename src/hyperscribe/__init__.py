@@ -7,7 +7,14 @@ import sys
 from contextlib import AbstractContextManager
 from dataclasses import dataclass, field
 from types import TracebackType
-from typing import Protocol, TextIO, TypeAlias, overload, runtime_checkable
+from typing import (
+    NewType,
+    Protocol,
+    TextIO,
+    TypeAlias,
+    overload,
+    runtime_checkable,
+)
 
 if sys.version_info >= (3, 13):
     from warnings import deprecated
@@ -27,7 +34,15 @@ class SupportsHTML(Protocol):
     def __html__(self) -> str: ...
 
 
-TrustedContent: TypeAlias = LiteralString | SupportsHTML | int | float
+SafeStr = NewType("SafeStr", str)
+"""A string that is safe to write as HTML, returned by :func:`escape` and :func:`trust`.
+
+It only exists for type checkers; at runtime it is a plain :class:`str`.
+Tag content and attribute values are therefore escaped as usual,
+so pass it to :meth:`DocWriter.__call__` to write it verbatim.
+"""
+
+TrustedContent: TypeAlias = LiteralString | SafeStr | SupportsHTML | int | float
 """Content accepted by :class:`DocWriter` without explicitly calling ``text``."""
 
 AttributeValue = object
@@ -45,11 +60,24 @@ because ARIA attributes take strings rather than being HTML boolean attributes.
 _MISSING: object = object()
 
 
-def _escape_text(value: str) -> str:
-    """Skip the replacement work for the common case with no HTML metacharacters."""
+def escape(value: str) -> SafeStr:
+    """Escape ``&``, ``<`` and ``>`` so the text can be written as HTML.
+
+    Quotes are left alone, so the result is not suitable for attribute values,
+    which are escaped by the writer anyway.
+    """
+    # Skip the replacement work for the common case with no HTML metacharacters.
     if "&" not in value and "<" not in value and ">" not in value:
-        return value
-    return html.escape(value, quote=False)
+        return SafeStr(value)
+    return SafeStr(html.escape(value, quote=False))
+
+
+def trust(value: str) -> SafeStr:
+    """Mark a string as safe to write as HTML, without escaping it.
+
+    Only use it for content that cannot contain untrusted input.
+    """
+    return SafeStr(value)
 
 
 def _to_text(value: object) -> str:
@@ -176,7 +204,7 @@ class _TagBuilder:
         if content is _MISSING:
             return _TagBuilder(self._doc, openings, self._closings) if attrs else self
         doc = self._doc
-        text = _escape_text(content if type(content) is str else _to_text(content))
+        text = escape(content if type(content) is str else _to_text(content))
         doc._write(
             f"{doc._prefix(doc._depth)}{''.join(openings)}"
             f"{text}{''.join(reversed(self._closings))}{doc._end}"
@@ -359,6 +387,6 @@ class DocWriter:
         """
         self._write(
             f"{self._prefix(self._depth)}"
-            f"{_escape_text(value if type(value) is str else _to_text(value))}"
+            f"{escape(value if type(value) is str else _to_text(value))}"
             f"{self._end}"
         )
