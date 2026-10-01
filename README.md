@@ -89,15 +89,17 @@ using a credential that may edit workflows.
 
 These gaps showed up
 when porting real Jinja and bottle templates to hyperscribe.
-None of them are fixed yet.
+Attribute handling, content conversion, comments,
+`doc.void_tag` for void elements, and the guide's loop idioms
+have been dealt with since.
+Two larger items remain.
 
 - **Element registry.**
   hyperscribe does not know anything about individual elements.
   A registry with metadata per element
   should cover the following:
-  - Void elements such as `<meta>`, `<link>`, `<br>`, `<img>` and `<input>`
-    have to be written with `write_raw` for now,
-    which skips indentation and does not escape attribute values.
+  - Void elements such as `<br>` and `<img>` should be written
+    without calling `doc.void_tag` explicitly.
   - Whitespace-sensitive elements such as `<pre>` and `<textarea>`
     should switch to inline mode automatically.
     Today the caller has to know to use `doc.inline()`.
@@ -111,34 +113,6 @@ None of them are fixed yet.
   The idea is a safe string type,
   either MarkupSafe's `Markup` or a custom implementation,
   perhaps built on template strings (`t""`).
-- **Attribute values.**
-  Values must be `str`.
-  They should behave like Jinja's `xmlattr` filter:
-  `None` omits the attribute,
-  and booleans write or omit a boolean attribute such as `defer`.
-  Today optional attributes need a conditional `dict`
-  and boolean attributes have to be written as `defer=""`.
-- **Attribute names that are not Python identifiers.**
-  `class`, `data-*`, `aria-*` and `http-equiv` need `**{"class": "card"}`.
-  Mapping a trailing underscore (`class_`) and underscores to hyphens (`data_id`)
-  would remove most of this.
-- **Content that is not a string.**
-  A number as content raises `TypeError`,
-  so values have to be wrapped in `str()` first.
-  `None` is treated as omitted content,
-  so `doc.p(None)` silently writes nothing
-  instead of raising or writing an empty element.
-- **Name clash.**
-  `DocWriter.tag(name, **attrs)` cannot take a `name` attribute,
-  which `<meta>` and `<input>` need.
-  The internal parameter should be renamed to `_name`.
-- **Comments.**
-  There is no way to write an HTML comment except through `write_raw`.
-  A function such as `doc.comment` should be added.
-- **Filtered loops.**
-  What Jinja writes as `{% for x in xs if cond %}` with `loop.first` and `loop.length`
-  turns into list comprehensions and `enumerate`.
-  The idioms should be documented in the guide.
 
 ## Status
 
