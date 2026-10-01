@@ -89,47 +89,56 @@ using a credential that may edit workflows.
 
 These gaps showed up
 when porting real Jinja and bottle templates to hyperscribe.
-None of them is fixed yet.
+None of them are fixed yet.
 
-- **Void elements.**
-  hyperscribe does not know elements such as `<meta>`, `<link>`, `<br>`, `<img>` and `<input>`.
-  They have to be written with `write_raw`,
-  which skips indentation and does not escape attribute values.
-- **Raw text elements.**
-  Text is escaped,
-  so the contents of `<style>` and `<script>` (`>` combinators, CSS nesting with `&`, JavaScript operators)
-  have to go through `write_raw`.
-  Support for these elements should write their content verbatim.
-- **Whitespace-sensitive elements.**
-  Indentation inside `<pre>` and `<textarea>` changes what the reader sees.
-  The workaround is `doc.inline()`,
-  which only works if the caller knows to use it.
+- **Element registry.**
+  hyperscribe does not know anything about individual elements.
+  A registry with metadata per element
+  should cover the following:
+  - Void elements such as `<meta>`, `<link>`, `<br>`, `<img>` and `<input>`
+    have to be written with `write_raw` for now,
+    which skips indentation and does not escape attribute values.
+  - Whitespace-sensitive elements such as `<pre>` and `<textarea>`
+    should switch to inline mode automatically.
+    Today the caller has to know to use `doc.inline()`.
+  - The contents of `<style>` and `<script>` should be written verbatim.
+  - The set of permitted attributes could be checked.
+- **Trusted content.**
+  Escaping text by default is intended.
+  What is missing is a way to mark content as already safe
+  other than `write_raw`,
+  for example CSS, JavaScript or prepared markup.
+  The idea is a safe string type,
+  either MarkupSafe's `Markup` or a custom implementation,
+  perhaps built on template strings (`t""`).
+- **Attribute values.**
+  Values must be `str`.
+  They should behave like Jinja's `xmlattr` filter:
+  `None` omits the attribute,
+  and booleans write or omit a boolean attribute such as `defer`.
+  Today optional attributes need a conditional `dict`
+  and boolean attributes have to be written as `defer=""`.
 - **Attribute names that are not Python identifiers.**
   `class`, `data-*`, `aria-*` and `http-equiv` need `**{"class": "card"}`.
   Mapping a trailing underscore (`class_`) and underscores to hyphens (`data_id`)
   would remove most of this.
-- **Attribute values.**
-  Values must be `str`.
-  Optional attributes need a conditional `dict`,
-  and `None` or `bool` values are not understood.
-  Boolean attributes such as `defer` have to be written as `defer=""`.
-- **Non-string content.**
-  Passing `None` or a number as content raises `TypeError`,
-  so every value has to be wrapped in `str()` first.
-- **Name clashes.**
+- **Content that is not a string.**
+  A number as content raises `TypeError`,
+  so values have to be wrapped in `str()` first.
+  `None` is treated as omitted content,
+  so `doc.p(None)` silently writes nothing
+  instead of raising or writing an empty element.
+- **Name clash.**
   `DocWriter.tag(name, **attrs)` cannot take a `name` attribute,
-  which `<meta>` and `<input>` need,
-  and tags named `tag`, `text` or `inline` are shadowed by the methods.
-- **Mixed text and inline markup.**
-  A cell such as `🔑 <code>x</code>` needs `with doc.inline(), doc.td(...)`.
-  A shorter way to write it would help.
-- **Conditionals and filtered loops.**
-  Plain Python covers them,
-  but what Jinja writes as `{% for x in xs if cond %}` with `loop.first` and `loop.length`
-  turns into list comprehensions and `enumerate`.
-  Helpers for repeated rows, or documentation of the idioms, would make this easier.
+  which `<meta>` and `<input>` need.
+  The internal parameter should be renamed to `_name`.
 - **Comments.**
   There is no way to write an HTML comment except through `write_raw`.
+  A function such as `doc.comment` should be added.
+- **Filtered loops.**
+  What Jinja writes as `{% for x in xs if cond %}` with `loop.first` and `loop.length`
+  turns into list comprehensions and `enumerate`.
+  The idioms should be documented in the guide.
 
 ## Status
 
