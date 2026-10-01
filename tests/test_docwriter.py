@@ -47,6 +47,7 @@ def test_chained_leaf_with_attributes() -> None:
     assert result == '<small><span title="t">hi</span></small>\n'
 
 
+@pytest.mark.filterwarnings("ignore:Use doc.* instead:DeprecationWarning")
 def test_tag_method_supports_arbitrary_names() -> None:
     def build(doc: DocWriter) -> None:
         with doc.tag("my-element", id="1"):
@@ -59,6 +60,7 @@ def test_call_writes_trusted_text_verbatim() -> None:
     assert render(lambda doc: doc("1 < 2")) == "1 < 2\n"
 
 
+@pytest.mark.filterwarnings("ignore:Use doc.* instead:DeprecationWarning")
 def test_write_raw_is_not_escaped_or_indented() -> None:
     def build(doc: DocWriter) -> None:
         with doc.div:
@@ -183,6 +185,7 @@ def test_unpacked_attribute_names_are_still_possible() -> None:
     assert result == '<p xml:lang="en">x</p>\n'
 
 
+@pytest.mark.filterwarnings("ignore:Use doc.* instead:DeprecationWarning")
 def test_number_content_is_converted() -> None:
     assert render(lambda doc: doc.p(3)) == "<p>3</p>\n"
     assert render(lambda doc: doc(1.5)) == "1.5\n"

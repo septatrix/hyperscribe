@@ -44,6 +44,7 @@ print(output.getvalue())
   verbatim while preserving indentation.
 - Output is streamed to anything with a `write(str)` method.
 - Fully typed, and supports Python 3.10 and newer.
+- No dependencies apart from `typing_extensions` for Python 3.10–3.12.
 
 ## Installation
 

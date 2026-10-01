@@ -9,6 +9,11 @@ from dataclasses import dataclass, field
 from types import TracebackType
 from typing import Protocol, TextIO, TypeAlias, overload, runtime_checkable
 
+if sys.version_info >= (3, 13):
+    from warnings import deprecated
+else:
+    from typing_extensions import deprecated
+
 if sys.version_info >= (3, 11):
     from typing import LiteralString
 else:
@@ -329,10 +334,12 @@ class DocWriter:
         self._depth -= 1
         self._write(f"{self._prefix(self._depth)}{closing}{self._end}")
 
+    @deprecated("Use doc(...) instead")
     def write_raw(self, value: str) -> None:
         """Write unescaped text to the document, bypassing the escaping logic."""
         self._write(value)
 
+    @deprecated("Use doc(...) instead")
     def text(self, value: object) -> None:
         """Write escaped text to the document on its own line.
 
