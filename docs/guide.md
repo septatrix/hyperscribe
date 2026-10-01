@@ -28,6 +28,14 @@ doc.p("Fish & chips")
 # <p>Fish &amp; chips</p>
 ```
 
+Content that is not a string is converted with {class}`str`,
+so `doc.td(3)` writes `<td>3</td>`.
+`None` is rejected with a {class}`TypeError`:
+it almost always means a value is missing,
+and passing it on silently would hide that.
+Pass an empty string for an empty element,
+or use {meth}`~hyperscribe.DocWriter.void_tag` for one that cannot have content.
+
 ### Container tags
 
 Using a tag as a context manager writes the opening tag,
@@ -50,7 +58,7 @@ it is emitted even if you leave the block early with `break` or `return`.
 ## Attributes
 
 Pass attributes as keyword arguments, both to leaf and to container tags.
-Values must be strings and are escaped for use inside double quotes.
+Values are escaped for use inside double quotes.
 
 ```python
 doc.a("Home", href="/")
@@ -58,17 +66,41 @@ with doc.div(id="main"):
     ...
 ```
 
-Keyword names are written exactly as given.
-For names that are not valid Python identifiers or are reserved words,
-such as `class` or `data-id`, use {meth}`~hyperscribe.DocWriter.tag`
-with dictionary unpacking:
+### Attribute names
+
+Python keywords and hyphens cannot be written as keyword names,
+so two rules map them for you:
+a trailing underscore is dropped
+and every other underscore becomes a hyphen.
 
 ```python
-with doc.tag("div", **{"class": "card", "data-id": "7"}):
-    doc.p("content")
+with doc.div(class_="card", data_id="7"):
+    doc.label("Name", for_="name")
 # <div class="card" data-id="7">
-#   <p>content</p>
+#   <label for="name">Name</label>
 # </div>
+```
+
+For names these rules cannot express, such as `xml:lang`,
+unpack a dictionary: `doc.p("hi", **{"xml:lang": "en"})`.
+Names that contain whitespace, quotes, `<`, `>`, `/` or `=` raise a {class}`ValueError`.
+
+### Attribute values
+
+| Value | Result |
+| --- | --- |
+| a string | written, escaped |
+| a number | converted with {class}`str` and written |
+| `True` | the bare attribute, as in `<script defer>` |
+| `False` or `None` | the attribute is left out |
+
+This makes optional attributes a matter of passing the value or `None`:
+
+```python
+doc.a("Docs", href=url, target="_blank" if external else None)
+doc.script("", src="app.js", defer=True)
+# <a href="/docs">Docs</a>  or  <a href="/docs" target="_blank">Docs</a>
+# <script src="app.js" defer></script>
 ```
 
 ## Nested tags
@@ -144,13 +176,81 @@ with untrusted data.
 
 ## Void elements
 
-hyperscribe does not know which HTML elements are void.
-A tag is only written when it is called with content or used as a context manager,
-so `doc.br` on its own does nothing.
-Write void elements with {meth}`~hyperscribe.DocWriter.write_raw`:
+Void elements such as `<br>`, `<img>`, `<meta>` and `<input>` have no content and no closing tag.
+hyperscribe does not know which elements are void,
+so a tag that is only accessed, such as `doc.br`, writes nothing.
+Write them with {meth}`~hyperscribe.DocWriter.void_tag`,
+which indents like any other tag and accepts the same attributes:
 
 ```python
-doc.write_raw("<br>\n")
+doc.void_tag("meta", charset="utf-8")
+doc.void_tag("img", src="logo.png", alt="Logo")
+# <meta charset="utf-8">
+# <img src="logo.png" alt="Logo">
+```
+
+Inside {meth}`~hyperscribe.DocWriter.inline` blocks it stays on the line,
+so `doc.void_tag("br")` between two pieces of text gives `a<br>b`.
+
+## Comments
+
+{meth}`~hyperscribe.DocWriter.comment` writes an HTML comment on its own line.
+
+```python
+doc.comment("navigation")
+# <!-- navigation -->
+```
+
+Text containing `--` raises a {class}`ValueError`,
+because it could end the comment early.
+
+## Loops, conditions and filters
+
+Templates are plain Python,
+so what other engines provide as special syntax is ordinary code.
+These are the idioms that come up most often.
+
+Filtering the items of a loop is a comprehension or an early `continue`.
+Jinja's `{% for x in xs if cond %}` becomes:
+
+```python
+for item in items:
+    if not item.visible:
+        continue
+    doc.li(item.name)
+```
+
+The `loop` variable is `enumerate`.
+`loop.first`, `loop.index0` and `loop.length` become:
+
+```python
+visible = [item for item in items if item.visible]
+for index, item in enumerate(visible):
+    doc.li(("+ " if index else "") + item.name)
+doc.p(f"{len(visible)} items")
+```
+
+When something must be known before the loop starts,
+such as a `rowspan` that counts the rows of a group,
+build the list first and then write it,
+as above.
+
+Optional attributes take `None`, so no branching is needed:
+
+```python
+doc.li(item.name, class_="done" if item.done else None)
+```
+
+Text next to markup needs {meth}`~hyperscribe.DocWriter.inline`,
+which is described above,
+so that no whitespace appears between them.
+
+Whitespace-sensitive elements such as `<pre>` and `<textarea>` need the same,
+or the indentation becomes part of their content:
+
+```python
+with doc.inline(), doc.pre:
+    doc(code)
 ```
 
 ## Layouts and components
