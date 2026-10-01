@@ -1,5 +1,7 @@
 """Article-list renderer implemented with dominate."""
 
+from typing import Any
+
 from dominate import tags
 from dominate.util import text as dominate_text
 
@@ -34,12 +36,14 @@ def render(items: list[Item]) -> str:
                     render_topic_list(topic_index)
                 with tags.ul():
                     for item in items:
-                        item_attributes = {"data_category": item["category"]}
+                        item_attributes: dict[str, Any] = {
+                            "data_category": item["category"]
+                        }
                         if item["featured"]:
                             item_attributes["cls"] = "featured"
                         if item["draft"]:
                             item_attributes["hidden"] = True
-                        link_attributes = {"href": item["url"]}
+                        link_attributes: dict[str, Any] = {"href": item["url"]}
                         if item["external"]:
                             link_attributes["target"] = "_blank"
                             link_attributes["rel"] = "noopener"

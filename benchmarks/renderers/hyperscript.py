@@ -1,5 +1,7 @@
 """Article-list renderer implemented with the Python Hyperscript library."""
 
+from typing import Any
+
 from hyperscript import h, safe
 
 from ..models import Item
@@ -21,11 +23,11 @@ def render(items: list[Item]) -> str:
     navigation = h("nav", h("h2", "Browse topics"), render_topic_list(topic_index))
     entries = []
     for item in items:
-        link_attributes = {"href": item["url"]}
+        link_attributes: dict[str, Any] = {"href": item["url"]}
         if item["external"]:
             link_attributes["target"] = "_blank"
             link_attributes["rel"] = "noopener"
-        item_attributes = {"data-category": item["category"]}
+        item_attributes: dict[str, Any] = {"data-category": item["category"]}
         if item["featured"]:
             item_attributes["class"] = "featured"
         if item["draft"]:
