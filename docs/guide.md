@@ -12,12 +12,23 @@ from io import StringIO
 from hyperscribe import DocWriter
 
 output = StringIO()
-doc = DocWriter(output)
+doc, t, v = DocWriter(output).parts
 ```
 
-Accessing an attribute on the writer, such as `doc.div`, gives you a tag.
-For names that are not valid Python identifiers, subscript the writer instead,
-as in `doc["my-element"]`.
+The writer keeps tags and void elements apart from its own methods,
+in two namespaces:
+{attr}`~hyperscribe.DocWriter.tags` and {attr}`~hyperscribe.DocWriter.voids`.
+{attr}`~hyperscribe.DocWriter.parts` returns the writer together with both,
+so they can be unpacked into short names,
+which the examples below call `doc`, `t` and `v`.
+A function that receives the writer can unpack only what it needs,
+as in `t = doc.tags`.
+
+Accessing an attribute on `t`, such as `t.div`, gives you a tag.
+Any name works, including those of the writer's methods,
+so `t.text` is SVG's `<text>` element.
+For names that are not valid Python identifiers, subscript instead,
+as in `t["my-element"]`.
 Tags are used in one of two ways.
 
 ### Leaf tags
@@ -26,17 +37,17 @@ Calling a tag with a string writes the complete element on one line.
 The content is escaped.
 
 ```python
-doc.p("Fish & chips")
+t.p("Fish & chips")
 # <p>Fish &amp; chips</p>
 ```
 
 Content that is not a string is converted with {class}`str`,
-so `doc.td(3)` writes `<td>3</td>`.
+so `t.td(3)` writes `<td>3</td>`.
 `None` is rejected with a {class}`TypeError`:
 it almost always means a value is missing,
 and passing it on silently would hide that.
 Pass an empty string for an empty element,
-or use {meth}`~hyperscribe.DocWriter.void_tag` for one that cannot have content.
+or use a [void element](#void-elements) for one that cannot have content.
 
 ### Container tags
 
@@ -45,9 +56,9 @@ indents everything inside the block,
 and writes the closing tag when the block ends.
 
 ```python
-with doc.ul:
-    doc.li("one")
-    doc.li("two")
+with t.ul:
+    t.li("one")
+    t.li("two")
 # <ul>
 #   <li>one</li>
 #   <li>two</li>
@@ -63,8 +74,8 @@ Pass attributes as keyword arguments, both to leaf and to container tags.
 Values are escaped for use inside double quotes.
 
 ```python
-doc.a("Home", href="/")
-with doc.div(id="main"):
+t.a("Home", href="/")
+with t.div(id="main"):
     ...
 ```
 
@@ -74,8 +85,8 @@ Python keywords such as `class` and `for` cannot be keyword names,
 so a trailing underscore is dropped:
 
 ```python
-with doc.div(class_="card"):
-    doc.label("Name", for_="name")
+with t.div(class_="card"):
+    t.label("Name", for_="name")
 # <div class="card">
 #   <label for="name">Name</label>
 # </div>
@@ -86,7 +97,7 @@ are written as a dictionary under the prefix,
 which is flattened into one attribute per entry:
 
 ```python
-doc.button("Close", data={"id": 7, "action": "close"}, aria={"label": "Close dialog"})
+t.button("Close", data={"id": 7, "action": "close"}, aria={"label": "Close dialog"})
 # <button data-id="7" data-action="close" aria-label="Close dialog">Close</button>
 ```
 
@@ -95,7 +106,7 @@ and dictionaries may be nested.
 The exception is `aria`, whose attributes take strings, not HTML boolean semantics:
 `aria={"hidden": True, "expanded": False}` gives `aria-hidden="true" aria-expanded="false"`.
 For any other name, such as `xml:lang`, unpack a dictionary:
-`doc.p("hi", **{"xml:lang": "en"})`.
+`t.p("hi", **{"xml:lang": "en"})`.
 
 Names are written as given,
 so only pass names you control.
@@ -113,8 +124,8 @@ so only pass names you control.
 This makes optional attributes a matter of passing the value or `None`:
 
 ```python
-doc.a("Docs", href=url, target="_blank" if external else None)
-doc.script("", src="app.js", defer=True)
+t.a("Docs", href=url, target="_blank" if external else None)
+t.script("", src="app.js", defer=True)
 # <a href="/docs">Docs</a>  or  <a href="/docs" target="_blank">Docs</a>
 # <script src="app.js" defer></script>
 ```
@@ -125,8 +136,8 @@ Chaining attributes opens several tags at once,
 which avoids deeply nested `with` statements.
 
 ```python
-with doc.body.main:
-    doc.h1("Title")
+with t.body.main:
+    t.h1("Title")
 # <body>
 #   <main>
 #     <h1>Title</h1>
@@ -135,14 +146,14 @@ with doc.body.main:
 ```
 
 Chained tags work for leaves, too.
-`doc.small.span("hi", title="t")` produces `<small><span title="t">hi</span></small>`,
+`t.small.span("hi", title="t")` produces `<small><span title="t">hi</span></small>`,
 with the attributes applied to the innermost tag.
 
 Calling a tag with attributes but no content gives a new tag,
 so attributes can also be set partway along a chain:
 
 ```python
-with doc.div.div(class_="x").div:
+with t.div.div(class_="x").div:
     doc("t")
 # <div>
 #   <div class="x">
@@ -153,27 +164,58 @@ with doc.div.div(class_="x").div:
 # </div>
 ```
 
-Subscripting works anywhere in a chain, as in `doc.div["my-element"]`.
+Subscripting works anywhere in a chain, as in `t.div["my-element"]`.
+Tags never change once created, so they can be stored and reused:
+`body = t.body` followed by `with body.main:` leaves `body` itself as it was.
 
 ## Text
 
-Use {meth}`~hyperscribe.DocWriter.text` to write escaped text on its own line.
-Calling the writer directly writes trusted content verbatim, with the current
-indentation and line ending. Its type annotation accepts {class}`typing.LiteralString`,
-values implementing ``__html__`` (such as MarkupSafe's ``Markup``), and ``int`` or
-``float`` values:
+Text passed as content to a tag is escaped,
+so dynamic or untrusted strings belong there:
 
 ```python
-with doc.p:
+t.span(user.name)
+# <span>Ada &amp; co</span>
+```
+
+### Trusted content
+
+Calling the writer directly writes trusted content verbatim,
+with the current indentation and line ending.
+Its type annotation accepts {class}`typing.LiteralString`,
+values implementing ``__html__`` (such as MarkupSafe's ``Markup``),
+and ``int`` or ``float`` values:
+
+```python
+doc("<!DOCTYPE html>")
+with t.p:
     doc("Some ")  # LiteralString: written verbatim
-    doc.strong("important")
+    t.strong("important")
     doc(" text")  # LiteralString: written verbatim
 ```
 
-For strings with dynamic or untrusted content, use {meth}`~hyperscribe.DocWriter.text`
-so HTML metacharacters are escaped. The ``__html__`` protocol and
-{class}`typing.LiteralString` are trust declarations; only use them for content
-that is safe to include as HTML.
+The ``__html__`` protocol and {class}`typing.LiteralString` are trust declarations;
+only use them for content that is safe to include as HTML.
+A type checker rejects other strings,
+such as those built with an f-string from user input.
+To write such a string without a tag around it, escape it first,
+for example with MarkupSafe, whose result implements ``__html__``:
+
+```python
+from markupsafe import escape
+
+with doc.inline(), t.p:
+    doc("Hello, ")
+    doc(escape(user.name))
+# <p>Hello, Ada &amp; co</p>
+```
+
+```{note}
+{meth}`~hyperscribe.DocWriter.text` and {meth}`~hyperscribe.DocWriter.write_raw`
+are deprecated.
+Use `doc(...)` for trusted content, including a doctype,
+and tag content or an escaped value for anything else.
+```
 
 ### Inline formatting
 
@@ -182,31 +224,15 @@ That is what you want for structure, but it inserts whitespace into running text
 Wrap content in {meth}`~hyperscribe.DocWriter.inline` to keep it on one line:
 
 ```python
-with doc.inline(), doc.li:
+with doc.inline(), t.li:
     doc("hi, ")
-    doc.b("there")
+    t.b("there")
 # <li>hi, <b>there</b></li>
 ```
 
 The block is indented and ends its line like any other tag.
 Inline blocks may be nested;
 normal formatting resumes once the outermost one exits.
-
-### Raw output
-
-{meth}`~hyperscribe.DocWriter.write_raw` writes a string exactly as given,
-without escaping, indentation, or a line ending. Use it for a doctype or other
-output that must control its own formatting. For trusted content that should
-follow the current indentation, call ``doc(value)`` instead.
-
-```python
-doc.write_raw("<!DOCTYPE html>\n")
-```
-
-```{warning}
-`write_raw` bypasses escaping.
-Never pass it untrusted input.
-```
 
 ## Escaping
 
@@ -220,19 +246,19 @@ with untrusted data.
 
 Void elements such as `<br>`, `<img>`, `<meta>` and `<input>` have no content and no closing tag.
 hyperscribe does not know which elements are void,
-so a tag that is only accessed, such as `doc.br`, writes nothing.
-Write them with {meth}`~hyperscribe.DocWriter.void_tag`,
-which indents like any other tag and accepts the same attributes:
+so they have their own namespace, {attr}`~hyperscribe.DocWriter.voids`.
+Calling one writes it, indented like any other tag and with the same attributes;
+it takes no content and cannot be used as a context manager:
 
 ```python
-doc.void_tag("meta", charset="utf-8")
-doc.void_tag("img", src="logo.png", alt="Logo")
+v.meta(charset="utf-8")
+v.img(src="logo.png", alt="Logo")
 # <meta charset="utf-8">
 # <img src="logo.png" alt="Logo">
 ```
 
 Inside {meth}`~hyperscribe.DocWriter.inline` blocks it stays on the line,
-so `doc.void_tag("br")` between two pieces of text gives `a<br>b`.
+so `v.br()` between two pieces of text gives `a<br>b`.
 
 ## Comments
 
@@ -259,7 +285,7 @@ Jinja's `{% for x in xs if cond %}` becomes:
 for item in items:
     if not item.visible:
         continue
-    doc.li(item.name)
+    t.li(item.name)
 ```
 
 The `loop` variable is `enumerate`.
@@ -268,8 +294,8 @@ The `loop` variable is `enumerate`.
 ```python
 visible = [item for item in items if item.visible]
 for index, item in enumerate(visible):
-    doc.li(("+ " if index else "") + item.name)
-doc.p(f"{len(visible)} items")
+    t.li(("+ " if index else "") + item.name)
+t.p(f"{len(visible)} items")
 ```
 
 When something must be known before the loop starts,
@@ -280,18 +306,20 @@ as above.
 Optional attributes take `None`, so no branching is needed:
 
 ```python
-doc.li(item.name, class_="done" if item.done else None)
+t.li(item.name, class_="done" if item.done else None)
 ```
 
 Text next to markup needs {meth}`~hyperscribe.DocWriter.inline`,
 which is described above,
 so that no whitespace appears between them.
 
-Whitespace-sensitive elements such as `<pre>` and `<textarea>` need the same,
+Whitespace-sensitive elements such as `<pre>` and `<textarea>`
+already stay on one line when given their content directly, as in `t.pre(code)`.
+When they contain further markup, they need an inline block,
 or the indentation becomes part of their content:
 
 ```python
-with doc.inline(), doc.pre:
+with doc.inline(), t.pre:
     doc(code)
 ```
 
@@ -309,26 +337,28 @@ from hyperscribe import DocWriter
 
 
 def topic_list(doc: DocWriter, topics: list[str]) -> None:
-    with doc.inline(), doc.div:
+    t = doc.tags
+    with doc.inline(), t.div:
         for index, topic in enumerate(topics):
             if index:
                 doc(", ")
-            doc.span(topic)
+            t.span(topic)
 
 
 def page(doc: DocWriter) -> Iterator[Literal["head", "content"]]:
-    with doc.html(lang="en"):
-        with doc.head:
+    t = doc.tags
+    with t.html(lang="en"):
+        with t.head:
             yield "head"
-        with doc.body:
+        with t.body:
             yield "content"
 
 
-doc.write_raw("<!DOCTYPE html>\n")
+doc("<!DOCTYPE html>")
 for section in page(doc):
     match section:
         case "head":
-            doc.title("Topics")
+            t.title("Topics")
         case "content":
             topic_list(doc, ["python", "html"])
 ```

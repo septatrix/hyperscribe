@@ -11,11 +11,11 @@ from io import StringIO
 from hyperscribe import DocWriter
 
 output = StringIO()
-doc = DocWriter(output)
+doc, t, v = DocWriter(output).parts
 
-with doc.html(lang="en"):
-    with doc.body.main:
-        doc.h1("Hello & welcome")
+with t.html(lang="en"):
+    with t.body.main:
+        t.h1("Hello & welcome")
 
 print(output.getvalue())
 ```

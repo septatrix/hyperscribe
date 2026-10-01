@@ -10,14 +10,14 @@ from io import StringIO
 from hyperscribe import DocWriter
 
 output = StringIO()
-doc = DocWriter(output)
+doc, t, v = DocWriter(output).parts
 
-with doc.html(lang="en"):
-    with doc.body.main:
-        doc.h1("Hello & welcome")
-        with doc.ul:
+with t.html(lang="en"):
+    with t.body.main:
+        t.h1("Hello & welcome")
+        with t.ul:
             for name in ("one", "two"):
-                doc.li(name)
+                t.li(name)
 
 print(output.getvalue())
 ```
@@ -93,7 +93,7 @@ using a credential that may edit workflows.
 These gaps showed up
 when porting real Jinja and bottle templates to hyperscribe.
 Attribute handling, content conversion, comments,
-`doc.void_tag` for void elements, and the guide's loop idioms
+`doc.voids` for void elements, and the guide's loop idioms
 have been dealt with since.
 Two larger items remain.
 
@@ -102,7 +102,7 @@ Two larger items remain.
   A registry with metadata per element
   should cover the following:
   - Void elements such as `<br>` and `<img>` should be written
-    without calling `doc.void_tag` explicitly.
+    without going through `doc.voids` explicitly.
   - Whitespace-sensitive elements such as `<pre>` and `<textarea>`
     should switch to inline mode automatically.
     Today the caller has to know to use `doc.inline()`.

@@ -167,23 +167,27 @@ class _TagBuilder:
         """
         openings = self._openings
         if attrs:
+            if not openings:
+                raise TypeError("attributes need a tag, as in doc.tags.div(...)")
             openings = (
                 *openings[:-1],
                 f"{openings[-1][:-1]}{_format_attributes(attrs)}>",
             )
         if content is _MISSING:
             return _TagBuilder(self._doc, openings, self._closings) if attrs else self
-        self._doc._render_leaf(
-            openings,
-            self._closings,
-            content if type(content) is str else _to_text(content),
+        doc = self._doc
+        text = _escape_text(content if type(content) is str else _to_text(content))
+        doc._write(
+            f"{doc._prefix(doc._depth)}{''.join(openings)}"
+            f"{text}{''.join(reversed(self._closings))}{doc._end}"
         )
         return None
 
     def __enter__(self) -> None:
-        open_tag = self._doc._open_tag
+        doc = self._doc
         for opening in self._openings:
-            open_tag(opening)
+            doc._write(f"{doc._prefix(doc._depth)}{opening}{doc._end}")
+            doc._depth += 1
 
     def __exit__(
         self,
@@ -191,9 +195,50 @@ class _TagBuilder:
         exc_value: BaseException | None,
         traceback: TracebackType | None,
     ) -> None:
-        close_tag = self._doc._close_tag
+        doc = self._doc
         for closing in reversed(self._closings):
-            close_tag(closing)
+            doc._depth -= 1
+            doc._write(f"{doc._prefix(doc._depth)}{closing}{doc._end}")
+
+
+@dataclass(slots=True, frozen=True)
+class _VoidBuilder:
+    """Write a void element, such as ``<br>``, on its own line when called."""
+
+    _doc: DocWriter
+    _opening: str
+
+    def __call__(self, /, **attrs: AttributeValue) -> None:
+        """Write the element with the given attributes.
+
+        Void elements have no content and no closing tag,
+        so there is nothing to pass as content or to enter as a context manager.
+        """
+        doc = self._doc
+        attributes = _format_attributes(attrs) if attrs else ""
+        doc._write(f"{doc._prefix(doc._depth)}{self._opening}{attributes}>{doc._end}")
+
+
+@dataclass(slots=True, frozen=True)
+class _Voids:
+    """Look up void elements by name, as in ``doc.voids.br()``."""
+
+    _doc: DocWriter
+    _builders: dict[str, _VoidBuilder] = field(default_factory=dict, repr=False)
+
+    def __getattr__(self, name: str) -> _VoidBuilder:
+        """Return the void element with this name, such as ``img``."""
+        if name.startswith("_"):
+            raise AttributeError(name)
+        return self[name]
+
+    def __getitem__(self, name: str) -> _VoidBuilder:
+        """Return the void element with any name, as in ``doc.voids["x-y"]``."""
+        builders = self._builders
+        if builder := builders.get(name):
+            return builder
+        builder = builders[name] = _VoidBuilder(self._doc, f"<{name}")
+        return builder
 
 
 class DocWriter:
@@ -201,9 +246,11 @@ class DocWriter:
 
     def __init__(self, writer: TextIO) -> None:
         self._write = writer.write
-        # An empty chain that is never written itself; its children are the
-        # top-level tags, so it doubles as their cache.
-        self._root = _TagBuilder(self, (), ())
+        # An empty chain whose children are the top-level tags.
+        self.tags: _TagBuilder = _TagBuilder(self, (), (), {})
+        """Tags by name, as in ``doc.tags.div``, or ``doc.tags["my-element"]``."""
+        self.voids: _Voids = _Voids(self)
+        """Void elements by name, as in ``doc.voids.br()``."""
         self._indentation = "  "
         self._depth: int = 0
         # Indentation by depth and the line ending written after each tag, like
@@ -213,18 +260,25 @@ class DocWriter:
         self._inline_prefixes: list[str] = []
         self._prefixes = self._line_prefixes
 
+    @property
+    def parts(self) -> tuple[DocWriter, _TagBuilder, _Voids]:
+        """Return the writer, its tags and its void elements, for unpacking.
+
+        ``doc, t, v = DocWriter(output).parts`` gives short local names.
+        """
+        return self, self.tags, self.voids
+
+    @deprecated("Use doc.tags.<name> instead")
     def __getattr__(self, name: str) -> _TagBuilder:
-        """Return a cached tag object usable directly or with attributes."""
+        """Return a tag by name; use :attr:`tags` instead."""
         if name.startswith("_"):
             raise AttributeError(name)
-        return self[name]
+        return self.tags[name]
 
+    @deprecated("Use doc.tags[name] instead")
     def __getitem__(self, name: str) -> _TagBuilder:
-        """Return a cached tag object for any name, such as ``doc["my-element"]``.
-
-        Use it for names that are not valid Python identifiers.
-        """
-        return self._root[name]
+        """Return a tag by any name; use :attr:`tags` instead."""
+        return self.tags[name]
 
     def __call__(self, value: TrustedContent) -> None:
         """Write trusted content verbatim, preserving the current indentation.
@@ -245,29 +299,26 @@ class DocWriter:
         """Suppress line breaks and indentation for the markup written in the block.
 
         The block is indented and ends its line like any other tag,
-        so ``with doc.inline(), doc.div:`` renders the whole ``div`` on one line.
+        so ``with doc.inline(), doc.tags.div:`` renders the whole ``div`` on one line.
         Blocks may be nested; formatting resumes once the outermost one exits.
         """
         return _InlineContext(self)
 
-    @deprecated("Use doc[name](...) instead")
+    @deprecated("Use doc.tags[name](...) instead")
     def tag(self, name: str, /, **attrs: AttributeValue) -> _TagBuilder:
         """Return a tag with any name and attributes.
 
-        Equivalent to ``doc[name](**attrs)``, which should be used instead.
+        Equivalent to ``doc.tags[name](**attrs)``, which should be used instead.
         """
-        return self[name](**attrs)
+        return self.tags[name](**attrs)
 
+    @deprecated("Use doc.voids[name](...) instead")
     def void_tag(self, name: str, /, **attrs: AttributeValue) -> None:
         """Write a void element such as ``<br>`` or ``<img>`` on its own line.
 
-        Void elements have no content and no closing tag,
-        so there is nothing to enter as a context manager.
-        Attributes work as in :meth:`tag`.
+        Equivalent to ``doc.voids[name](**attrs)``, which should be used instead.
         """
-        self._write(
-            f"{self._prefix(self._depth)}<{name}{_format_attributes(attrs)}>{self._end}"
-        )
+        self.voids[name](**attrs)
 
     def comment(self, text: str) -> None:
         """Write an HTML comment on its own line.
@@ -293,23 +344,6 @@ class DocWriter:
         except IndexError:
             self._generate_prefix(depth)
             return self._prefixes[depth]
-
-    def _render_leaf(
-        self, openings: tuple[str, ...], closings: tuple[str, ...], text: str
-    ) -> None:
-        """Write shorthand leaf markup on one line, escaping the text."""
-        prefix = self._prefix(self._depth)
-        opening = "".join(openings)
-        closing = "".join(reversed(closings))
-        self._write(f"{prefix}{opening}{_escape_text(text)}{closing}{self._end}")
-
-    def _open_tag(self, opening: str) -> None:
-        self._write(f"{self._prefix(self._depth)}{opening}{self._end}")
-        self._depth += 1
-
-    def _close_tag(self, closing: str) -> None:
-        self._depth -= 1
-        self._write(f"{self._prefix(self._depth)}{closing}{self._end}")
 
     @deprecated("Use doc(...) instead")
     def write_raw(self, value: str) -> None:
