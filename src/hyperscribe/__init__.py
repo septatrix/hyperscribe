@@ -3,10 +3,27 @@
 from __future__ import annotations
 
 import html
+import sys
 from contextlib import AbstractContextManager
 from dataclasses import dataclass, field
 from types import TracebackType
-from typing import TextIO, overload
+from typing import Protocol, TextIO, TypeAlias, overload, runtime_checkable
+
+if sys.version_info >= (3, 11):
+    from typing import LiteralString
+else:
+    from typing_extensions import LiteralString
+
+
+@runtime_checkable
+class SupportsHTML(Protocol):
+    """An object whose ``__html__`` method returns trusted HTML."""
+
+    def __html__(self) -> str: ...
+
+
+TrustedContent: TypeAlias = LiteralString | SupportsHTML | int | float
+"""Content accepted by :class:`DocWriter` without explicitly calling ``text``."""
 
 AttributeValue = object
 """What an attribute may be set to.
@@ -196,9 +213,20 @@ class DocWriter:
             tag_builders[name] = _TagBuilder(self, (name,))
         return tag_builders[name]
 
-    def __call__(self, value: object) -> None:
-        """Write escaped text to the document."""
-        self.text(value)
+    def __call__(self, value: TrustedContent) -> None:
+        """Write trusted content verbatim, preserving the current indentation.
+
+        Strings with non-literal provenance must be passed to :meth:`text`.
+        Objects implementing ``__html__`` contribute their trusted HTML string;
+        literal strings and primitive numeric values are also written verbatim.
+        """
+        if isinstance(value, str):
+            content = value
+        elif isinstance(value, SupportsHTML):
+            content = value.__html__()
+        else:
+            content = str(value)
+        self._write(f"{self._prefix(self._depth)}{content}{self._end}")
 
     def inline(self) -> AbstractContextManager[None]:
         """Suppress line breaks and indentation for the markup written in the block.
@@ -274,9 +302,8 @@ class DocWriter:
 
     def _generate_prefix(self, depth: int) -> str:
         """Return the prefix for a depth, extending the per-depth caches as needed."""
-        for missing in range(len(self._line_prefixes), depth + 1):
-            self._line_prefixes.append(self._indentation * missing)
-            self._inline_prefixes.append("")
+        self._line_prefixes.append(self._indentation * depth)
+        self._inline_prefixes.append("")
         return self._line_prefixes[depth]
 
     def _prefix(self, depth: int) -> str:

@@ -138,15 +138,23 @@ with the attributes applied to the innermost tag.
 
 ## Text
 
-Use {meth}`~hyperscribe.DocWriter.text`, or call the writer directly,
-to write escaped text on its own line.
+Use {meth}`~hyperscribe.DocWriter.text` to write escaped text on its own line.
+Calling the writer directly writes trusted content verbatim, with the current
+indentation and line ending. Its type annotation accepts {class}`typing.LiteralString`,
+values implementing ``__html__`` (such as MarkupSafe's ``Markup``), and ``int`` or
+``float`` values:
 
 ```python
 with doc.p:
-    doc("Some ")
+    doc("Some ")  # LiteralString: written verbatim
     doc.strong("important")
-    doc(" text")
+    doc(" text")  # LiteralString: written verbatim
 ```
+
+For strings with dynamic or untrusted content, use {meth}`~hyperscribe.DocWriter.text`
+so HTML metacharacters are escaped. The ``__html__`` protocol and
+{class}`typing.LiteralString` are trust declarations; only use them for content
+that is safe to include as HTML.
 
 ### Inline formatting
 
@@ -168,8 +176,9 @@ normal formatting resumes once the outermost one exits.
 ### Raw output
 
 {meth}`~hyperscribe.DocWriter.write_raw` writes a string exactly as given,
-without escaping or indentation.
-Use it for a doctype or for markup you have already made safe.
+without escaping, indentation, or a line ending. Use it for a doctype or other
+output that must control its own formatting. For trusted content that should
+follow the current indentation, call ``doc(value)`` instead.
 
 ```python
 doc.write_raw("<!DOCTYPE html>\n")

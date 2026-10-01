@@ -39,9 +39,11 @@ print(output.getvalue())
 ## Features
 
 - Templates are plain Python: use loops, functions, and `@contextmanager` layouts.
-- Text and attribute values are escaped by default.
+- Text written with `doc.text(...)` and attribute values are escaped.
+- `doc(...)` writes trusted `LiteralString`, `__html__` objects, and numeric values
+  verbatim while preserving indentation.
 - Output is streamed to anything with a `write(str)` method.
-- No dependencies, fully typed, and supports Python 3.10 and newer.
+- Fully typed, and supports Python 3.10 and newer.
 
 ## Installation
 
@@ -106,13 +108,11 @@ Two larger items remain.
   - The contents of `<style>` and `<script>` should be written verbatim.
   - The set of permitted attributes could be checked.
 - **Trusted content.**
-  Escaping text by default is intended.
-  What is missing is a way to mark content as already safe
-  other than `write_raw`,
-  for example CSS, JavaScript or prepared markup.
-  The idea is a safe string type,
-  either MarkupSafe's `Markup` or a custom implementation,
-  perhaps built on template strings (`t""`).
+  `DocWriter.__call__` has preliminary support for trusted content:
+  `LiteralString`, objects implementing `__html__` (such as MarkupSafe's `Markup`),
+  and numeric values are written verbatim with indentation.
+  Broader safe string support for CSS, JavaScript, or prepared markup,
+  perhaps built on template strings, remains future work.
 
 ## Status
 

@@ -7,7 +7,7 @@ authors = [
     { name = "Septatrix", email = "24257556+septatrix@users.noreply.github.com" }
 ]
 requires-python = ">=3.10"
-dependencies = []
+dependencies = ["typing-extensions>=4.0; python_version < '3.11'"]
 keywords = ["html", "templating", "template-engine", "markup", "context-manager"]
 classifiers = [
     "Development Status :: 3 - Alpha",

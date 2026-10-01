@@ -55,8 +55,8 @@ def test_tag_method_supports_arbitrary_names() -> None:
     assert render(build) == '<my-element id="1">\n  t\n</my-element>\n'
 
 
-def test_call_writes_escaped_text() -> None:
-    assert render(lambda doc: doc("1 < 2")) == "1 &lt; 2\n"
+def test_call_writes_trusted_text_verbatim() -> None:
+    assert render(lambda doc: doc("1 < 2")) == "1 < 2\n"
 
 
 def test_write_raw_is_not_escaped_or_indented() -> None:
@@ -192,8 +192,10 @@ def test_number_content_is_converted() -> None:
 def test_none_content_is_rejected() -> None:
     with pytest.raises(TypeError, match="None"):
         render(lambda doc: doc.p(None))
-    with pytest.raises(TypeError, match="None"):
-        render(lambda doc: doc(None))
+
+
+def test_call_converts_non_string_values_without_escaping() -> None:
+    assert render(lambda doc: doc(1.5)) == "1.5\n"
 
 
 def test_empty_string_content_writes_an_empty_element() -> None:
