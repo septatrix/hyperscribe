@@ -216,7 +216,7 @@ class DocWriter:
         """
         return _InlineContext(self)
 
-    def tag(self, _name: str, /, **attrs: AttributeValue) -> _TagContext:
+    def tag(self, name: str, /, **attrs: AttributeValue) -> _TagContext:
         """Return a context manager for a tag with any name and attributes.
 
         Use it for names that are not valid Python identifiers,
@@ -231,28 +231,28 @@ class DocWriter:
         such as ``**{"xml:lang": "en"}``.
         """
         if attrs:
-            _check_tag_name(_name)
+            _check_tag_name(name)
             attributes = _format_attributes(attrs)
-            return _TagContext(self, (f"<{_name}{attributes}>",), (f"</{_name}>",))
+            return _TagContext(self, (f"<{name}{attributes}>",), (f"</{name}>",))
 
-        if context := self._tags.get(_name):
+        if context := self._tags.get(name):
             return context
 
-        _check_tag_name(_name)
-        context = _TagContext(self, (f"<{_name}>",), (f"</{_name}>",))
-        self._tags[_name] = context
+        _check_tag_name(name)
+        context = _TagContext(self, (f"<{name}>",), (f"</{name}>",))
+        self._tags[name] = context
         return context
 
-    def void_tag(self, _name: str, /, **attrs: AttributeValue) -> None:
+    def void_tag(self, name: str, /, **attrs: AttributeValue) -> None:
         """Write a void element such as ``<br>`` or ``<img>`` on its own line.
 
         Void elements have no content and no closing tag,
         so there is nothing to enter as a context manager.
         Attributes work as in :meth:`tag`.
         """
-        _check_tag_name(_name)
+        _check_tag_name(name)
         self._write(
-            f"{self._prefix(self._depth)}<{_name}{_format_attributes(attrs)}>{self._end}"
+            f"{self._prefix(self._depth)}<{name}{_format_attributes(attrs)}>{self._end}"
         )
 
     def comment(self, text: str) -> None:
@@ -267,10 +267,9 @@ class DocWriter:
         self._write(f"{self._prefix(self._depth)}<!-- {text} -->{self._end}")
 
     def _context_for(
-        self, _path: tuple[str, ...], /, **attrs: AttributeValue
+        self, path: tuple[str, ...], /, **attrs: AttributeValue
     ) -> _TagContext:
         """Make a context manager for a tag chain, adding attributes to its leaf."""
-        path = _path
         if len(path) == 1:
             return self.tag(path[0], **attrs)
 
