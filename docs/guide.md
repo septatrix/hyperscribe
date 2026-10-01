@@ -90,6 +90,8 @@ doc.button("Close", data={"id": 7, "action": "close"}, aria={"label": "Close dia
 
 The entries follow the same rules as other values, described below,
 and dictionaries may be nested.
+The exception is `aria`, whose attributes take strings, not HTML boolean semantics:
+`aria={"hidden": True, "expanded": False}` gives `aria-hidden="true" aria-expanded="false"`.
 For any other name, such as `xml:lang`, unpack a dictionary:
 `doc.p("hi", **{"xml:lang": "en"})`.
 
@@ -101,7 +103,7 @@ so only pass names you control.
 | Value | Result |
 | --- | --- |
 | a string | written, escaped |
-| a number | converted with {class}`str` and written |
+| a number or any other object | converted with {class}`str` and written |
 | `True` | the bare attribute, as in `<script defer>` |
 | a dictionary | flattened with the name as a prefix |
 | `False` or `None` | the attribute is left out |

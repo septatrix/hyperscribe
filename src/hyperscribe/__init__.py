@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from types import TracebackType
 from typing import TextIO, overload
 
-AttributeValue = str | int | float | bool | None | dict[str, "AttributeValue"]
+AttributeValue = object
 """What an attribute may be set to.
 
 ``None`` and ``False`` omit the attribute,
@@ -16,6 +16,8 @@ AttributeValue = str | int | float | bool | None | dict[str, "AttributeValue"]
 a dictionary is flattened into one attribute per entry
 with the name as a prefix (``data={"id": 7}`` gives ``data-id="7"``),
 and anything else is converted with :class:`str` and escaped.
+Inside ``aria``, booleans are written as ``"true"`` and ``"false"`` instead,
+because ARIA attributes take strings rather than being HTML boolean attributes.
 """
 
 _MISSING: object = object()
@@ -42,15 +44,19 @@ def _format_attributes(attrs: dict[str, AttributeValue], prefix: str = "") -> st
 
     A trailing underscore is dropped from names, so ``class_`` is written ``class``.
     """
+    aria = prefix == "aria"
     parts: list[str] = []
     for key, value in attrs.items():
-        if value is None or value is False:
+        if value is None:
             continue
         name = key[:-1] if key.endswith("_") else key
         if prefix:
             name = f"{prefix}-{name}"
         if value is True:
-            parts.append(f" {name}")
+            parts.append(f' {name}="true"' if aria else f" {name}")
+        elif value is False:
+            if aria:
+                parts.append(f' {name}="false"')
         elif type(value) is str:
             parts.append(f' {name}="{html.escape(value, quote=True)}"')
         elif isinstance(value, dict):
