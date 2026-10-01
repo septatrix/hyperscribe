@@ -39,17 +39,44 @@ def render(items: list[Item]) -> str:
         match block:
             case "head":
                 doc.title("Articles")
+                doc.void_tag("meta", charset="utf-8")
+                doc.void_tag(
+                    "meta",
+                    name="viewport",
+                    content="width=device-width, initial-scale=1",
+                )
+                doc.void_tag("link", rel="stylesheet", href="/static/site.css")
+                doc.script("", src="/static/app.js", defer=True)
             case "navigation":
                 doc.h2("Browse topics")
                 render_topic_list(doc, topic_index)
             case "content":
                 for item in items:
-                    with doc.li:
-                        doc.a(item["title"], href=item["url"])
+                    with doc.li(
+                        class_="featured" if item["featured"] else None,
+                        data_category=item["category"],
+                        hidden=item["draft"],
+                    ):
+                        doc.comment(f"article {item['id']}")
+                        doc.void_tag(
+                            "img",
+                            src=item["thumbnail"],
+                            alt=item["title"],
+                            width=64,
+                            height=64,
+                            loading="lazy",
+                        )
+                        doc.a(
+                            item["title"],
+                            href=item["url"],
+                            target="_blank" if item["external"] else None,
+                            rel="noopener" if item["external"] else None,
+                        )
                         doc.p(item["summary"])
                         if item["featured"]:
                             doc.strong("Featured")
                         doc.span(item["category"])
+                        doc.span(item["rating"], class_="rating")
                         if item["author"]:
                             doc.small.span(f"By {item['author']}")
                         if item["tags"]:

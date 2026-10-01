@@ -1,6 +1,6 @@
 """Article-list renderer implemented with the Python Hyperscript library."""
 
-from hyperscript import h
+from hyperscript import h, safe
 
 from ..models import Item
 
@@ -21,24 +21,58 @@ def render(items: list[Item]) -> str:
     navigation = h("nav", h("h2", "Browse topics"), render_topic_list(topic_index))
     entries = []
     for item in items:
+        link_attributes = {"href": item["url"]}
+        if item["external"]:
+            link_attributes["target"] = "_blank"
+            link_attributes["rel"] = "noopener"
+        item_attributes = {"data-category": item["category"]}
+        if item["featured"]:
+            item_attributes["class"] = "featured"
+        if item["draft"]:
+            item_attributes["hidden"] = True
         children = [
-            h("a", {"href": item["url"]}, item["title"]),
+            safe(f"<!-- article {item['id']} -->"),
+            h(
+                "img",
+                {
+                    "src": item["thumbnail"],
+                    "alt": item["title"],
+                    "width": 64,
+                    "height": 64,
+                    "loading": "lazy",
+                },
+            ),
+            h("a", link_attributes, item["title"]),
             h("p", item["summary"]),
         ]
         if item["featured"]:
             children.append(h("strong", "Featured"))
         children.append(h("span", item["category"]))
+        children.append(h("span", {"class": "rating"}, str(item["rating"])))
         if item["author"]:
             children.append(h("small", h("span", f"By {item['author']}")))
         if item["tags"]:
             children.append(render_topic_list(item["tags"]))
         if item["comments"]:
             children.append(h("span", f"{item['comments']} comments"))
-        entries.append(h("li", *children))
+        entries.append(h("li", item_attributes, *children))
     document = h(
         "html",
         {"lang": "en"},
-        h("head", h("title", "Articles")),
+        h(
+            "head",
+            h("title", "Articles"),
+            h("meta", {"charset": "utf-8"}),
+            h(
+                "meta",
+                {
+                    "name": "viewport",
+                    "content": "width=device-width, initial-scale=1",
+                },
+            ),
+            h("link", {"rel": "stylesheet", "href": "/static/site.css"}),
+            h("script", {"src": "/static/app.js", "defer": True}),
+        ),
         h("body", h("main", navigation, h("ul", *entries))),
     )
     return "<!DOCTYPE html>\n" + str(document)

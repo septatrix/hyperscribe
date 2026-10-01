@@ -13,6 +13,10 @@
 #end def
 #block head
 <title>Articles</title>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="/static/site.css">
+<script src="/static/app.js" defer></script>
 #end block
 
 #block navigation
@@ -25,13 +29,19 @@
 #block content
   <ul>
 #for $item in $articles
-    <li>
-      <a href="$escape_attr($item['url'])">$escape_text($item['title'])</a>
+#set $featured_class = ' class="featured"' if $item['featured'] else ''
+#set $hidden_attr = ' hidden' if $item['draft'] else ''
+#set $link_attrs = ' target="_blank" rel="noopener"' if $item['external'] else ''
+    <li$featured_class data-category="$escape_attr($item['category'])"$hidden_attr>
+      <!-- article $item['id'] -->
+      <img src="$escape_attr($item['thumbnail'])" alt="$escape_attr($item['title'])" width="64" height="64" loading="lazy">
+      <a href="$escape_attr($item['url'])"$link_attrs>$escape_text($item['title'])</a>
       <p>$escape_text($item['summary'])</p>
 #if $item['featured']
       <strong>Featured</strong>
 #end if
       <span>$escape_text($item['category'])</span>
+      <span class="rating">$item['rating']</span>
 #if $item['author']
       <small><span>By $escape_text($item['author'])</span></small>
 #end if

@@ -53,7 +53,7 @@ def block_head(context, missing=missing, environment=environment):
     if 0: yield None
     _block_vars = {}
     pass
-    yield '<title>Articles</title>'
+    yield '<title>Articles</title>\n<meta charset="utf-8">\n<meta name="viewport" content="width=device-width, initial-scale=1">\n<link rel="stylesheet" href="/static/site.css">\n<script src="/static/app.js" defer></script>\n'
 
 def block_navigation(context, missing=missing, environment=environment):
     resolve = context.resolve_or_missing
@@ -83,9 +83,29 @@ def block_content(context, missing=missing, environment=environment):
         l_1_topic_list = resolve('topic_list')
         _loop_vars = {}
         pass
-        yield '    <li>\n      <a href="'
+        yield '    <li'
+        if environment.getattr(l_1_item, 'featured'):
+            pass
+            yield ' class="featured"'
+        yield ' data-category="'
+        yield escape(environment.getattr(l_1_item, 'category'))
+        yield '"'
+        if environment.getattr(l_1_item, 'draft'):
+            pass
+            yield ' hidden'
+        yield '>\n      <!-- article '
+        yield escape(environment.getattr(l_1_item, 'id'))
+        yield ' -->\n      <img src="'
+        yield escape(environment.getattr(l_1_item, 'thumbnail'))
+        yield '" alt="'
+        yield escape(environment.getattr(l_1_item, 'title'))
+        yield '" width="64" height="64" loading="lazy">\n      <a href="'
         yield escape(environment.getattr(l_1_item, 'url'))
-        yield '">'
+        yield '"'
+        if environment.getattr(l_1_item, 'external'):
+            pass
+            yield ' target="_blank" rel="noopener"'
+        yield '>'
         yield escape(environment.getattr(l_1_item, 'title'))
         yield '</a>\n      <p>'
         yield escape(environment.getattr(l_1_item, 'summary'))
@@ -95,6 +115,8 @@ def block_content(context, missing=missing, environment=environment):
             yield '<strong>Featured</strong>'
         yield '\n      <span>'
         yield escape(environment.getattr(l_1_item, 'category'))
+        yield '</span>\n      <span class="rating">'
+        yield escape(environment.getattr(l_1_item, 'rating'))
         yield '</span>\n      '
         if environment.getattr(l_1_item, 'author'):
             pass
@@ -116,4 +138,4 @@ def block_content(context, missing=missing, environment=environment):
     yield '  </ul>\n'
 
 blocks = {'head': block_head, 'navigation': block_navigation, 'content': block_content}
-debug_info = '1=13&3=16&4=25&7=47&9=57&12=68&16=71&18=81&19=86&20=90&21=92&22=96&23=98&24=104&25=108'
+debug_info = '1=13&3=16&4=25&7=47&14=57&17=68&21=71&23=81&24=96&25=98&26=102&27=110&28=112&29=116&30=118&31=120&32=126&33=130'

@@ -19,6 +19,12 @@ def render(items: list[Item]) -> str:
     root = ElementTree.Element("html", lang="en")
     head = ElementTree.SubElement(root, "head")
     ElementTree.SubElement(head, "title").text = "Articles"
+    ElementTree.SubElement(head, "meta", charset="utf-8")
+    ElementTree.SubElement(
+        head, "meta", name="viewport", content="width=device-width, initial-scale=1"
+    )
+    ElementTree.SubElement(head, "link", rel="stylesheet", href="/static/site.css")
+    ElementTree.SubElement(head, "script", src="/static/app.js", defer="").text = ""
     body = ElementTree.SubElement(root, "body")
     main = ElementTree.SubElement(body, "main")
     navigation = ElementTree.SubElement(main, "nav")
@@ -28,13 +34,34 @@ def render(items: list[Item]) -> str:
     if not items:
         listing.text = "\n"
     for item in items:
-        entry = ElementTree.SubElement(listing, "li")
+        item_attributes = {"data-category": item["category"]}
+        if item["featured"]:
+            item_attributes["class"] = "featured"
+        if item["draft"]:
+            item_attributes["hidden"] = ""
+        entry = ElementTree.SubElement(listing, "li", item_attributes)
+        entry.append(ElementTree.Comment(f" article {item['id']} "))
+        ElementTree.SubElement(
+            entry,
+            "img",
+            src=item["thumbnail"],
+            alt=item["title"],
+            width="64",
+            height="64",
+            loading="lazy",
+        )
         link = ElementTree.SubElement(entry, "a", href=item["url"])
+        if item["external"]:
+            link.set("target", "_blank")
+            link.set("rel", "noopener")
         link.text = item["title"]
         ElementTree.SubElement(entry, "p").text = item["summary"]
         if item["featured"]:
             ElementTree.SubElement(entry, "strong").text = "Featured"
         ElementTree.SubElement(entry, "span").text = item["category"]
+        ElementTree.SubElement(entry, "span", {"class": "rating"}).text = str(
+            item["rating"]
+        )
         if item["author"]:
             ElementTree.SubElement(
                 ElementTree.SubElement(entry, "small"), "span"

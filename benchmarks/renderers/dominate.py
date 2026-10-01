@@ -23,6 +23,10 @@ def render(items: list[Item]) -> str:
     with root:
         with tags.head():
             tags.title("Articles")
+            tags.meta(charset="utf-8")
+            tags.meta(name="viewport", content="width=device-width, initial-scale=1")
+            tags.link(rel="stylesheet", href="/static/site.css")
+            tags.script(src="/static/app.js", defer=True)
         with tags.body():
             with tags.main():
                 with tags.nav():
@@ -30,12 +34,30 @@ def render(items: list[Item]) -> str:
                     render_topic_list(topic_index)
                 with tags.ul():
                     for item in items:
-                        with tags.li():
-                            tags.a(item["title"], href=item["url"])
+                        item_attributes = {"data_category": item["category"]}
+                        if item["featured"]:
+                            item_attributes["cls"] = "featured"
+                        if item["draft"]:
+                            item_attributes["hidden"] = True
+                        link_attributes = {"href": item["url"]}
+                        if item["external"]:
+                            link_attributes["target"] = "_blank"
+                            link_attributes["rel"] = "noopener"
+                        with tags.li(**item_attributes):
+                            tags.comment(f"article {item['id']}")
+                            tags.img(
+                                src=item["thumbnail"],
+                                alt=item["title"],
+                                width=64,
+                                height=64,
+                                loading="lazy",
+                            )
+                            tags.a(item["title"], **link_attributes)
                             tags.p(item["summary"])
                             if item["featured"]:
                                 tags.strong("Featured")
                             tags.span(item["category"])
+                            tags.span(str(item["rating"]), cls="rating")
                             if item["author"]:
                                 with tags.small():
                                     tags.span(f"By {item['author']}")
