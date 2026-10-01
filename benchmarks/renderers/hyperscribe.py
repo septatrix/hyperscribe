@@ -34,7 +34,7 @@ def render(items: list[Item]) -> str:
     output = StringIO()
     doc = DocWriter(output)
     topic_index = sorted({topic for item in items for topic in item["tags"]})
-    doc.write_raw("<!DOCTYPE html>\n")
+    doc("<!DOCTYPE html>\n")
     for block in page(doc):
         match block:
             case "head":
