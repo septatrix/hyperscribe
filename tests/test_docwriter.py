@@ -7,6 +7,14 @@ import pytest
 from hyperscribe import DocWriter
 
 
+class TrustedHTML:
+    def __init__(self, value: str) -> None:
+        self.value = value
+
+    def __html__(self) -> str:
+        return self.value
+
+
 def render(build: Callable[[DocWriter], object]) -> str:
     output = StringIO()
     build(DocWriter(output))
@@ -58,6 +66,20 @@ def test_tag_method_supports_arbitrary_names() -> None:
 
 def test_call_writes_trusted_text_verbatim() -> None:
     assert render(lambda doc: doc("1 < 2")) == "1 < 2\n"
+
+
+def test_call_writes_html_protocol_content_verbatim() -> None:
+    assert render(lambda doc: doc(TrustedHTML("<b>trusted & safe</b>"))) == (
+        "<b>trusted & safe</b>\n"
+    )
+
+
+def test_call_indents_html_protocol_content() -> None:
+    def build(doc: DocWriter) -> None:
+        with doc.div:
+            doc(TrustedHTML("<b>trusted</b>"))
+
+    assert render(build) == "<div>\n  <b>trusted</b>\n</div>\n"
 
 
 @pytest.mark.filterwarnings("ignore:Use doc.* instead:DeprecationWarning")
