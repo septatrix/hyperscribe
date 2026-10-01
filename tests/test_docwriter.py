@@ -1,4 +1,5 @@
 from collections.abc import Callable
+from decimal import Decimal
 from io import StringIO
 
 import pytest
@@ -132,9 +133,23 @@ def test_dictionary_attribute_is_flattened_with_a_prefix() -> None:
 
 def test_dictionary_attribute_follows_the_value_rules() -> None:
     result = render(
-        lambda doc: doc.div("x", aria={"hidden": True, "label": None, "busy": False})
+        lambda doc: doc.div("x", data={"flag": True, "label": None, "busy": False})
     )
-    assert result == "<div aria-hidden>x</div>\n"
+    assert result == "<div data-flag>x</div>\n"
+
+
+def test_aria_booleans_are_written_as_strings() -> None:
+    result = render(
+        lambda doc: doc.div(
+            "x", aria={"hidden": True, "expanded": False, "label": None}
+        )
+    )
+    assert result == '<div aria-hidden="true" aria-expanded="false">x</div>\n'
+
+
+def test_arbitrary_objects_are_converted_with_str() -> None:
+    result = render(lambda doc: doc.void_tag("input", value=Decimal("1.25")))
+    assert result == '<input value="1.25">\n'
 
 
 def test_dictionaries_nest() -> None:
