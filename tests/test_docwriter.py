@@ -120,14 +120,36 @@ def test_trailing_underscore_is_dropped_from_attribute_names() -> None:
     assert result == '<label for="a" class="b">x</label>\n'
 
 
-def test_underscores_become_hyphens_in_attribute_names() -> None:
-    result = render(lambda doc: doc.div("x", data_id="7", aria_label="y"))
-    assert result == '<div data-id="7" aria-label="y">x</div>\n'
+def test_only_the_trailing_underscore_is_dropped() -> None:
+    result = render(lambda doc: doc.div("x", data_id="7"))
+    assert result == '<div data_id="7">x</div>\n'
+
+
+def test_dictionary_attribute_is_flattened_with_a_prefix() -> None:
+    result = render(lambda doc: doc.div("x", data={"id": 7, "user-name": "a&b"}))
+    assert result == '<div data-id="7" data-user-name="a&amp;b">x</div>\n'
+
+
+def test_dictionary_attribute_follows_the_value_rules() -> None:
+    result = render(
+        lambda doc: doc.div("x", aria={"hidden": True, "label": None, "busy": False})
+    )
+    assert result == "<div aria-hidden>x</div>\n"
+
+
+def test_dictionaries_nest() -> None:
+    result = render(lambda doc: doc.div("x", data={"a": {"b": "1"}}))
+    assert result == '<div data-a-b="1">x</div>\n'
+
+
+def test_dictionary_prefix_drops_a_trailing_underscore() -> None:
+    result = render(lambda doc: doc.div("x", data_={"id": "7"}))
+    assert result == '<div data-id="7">x</div>\n'
 
 
 def test_attribute_names_apply_to_context_managers() -> None:
     def build(doc: DocWriter) -> None:
-        with doc.div(class_="card", data_id="7"):
+        with doc.div(class_="card", data={"id": "7"}):
             doc.p("x")
 
     assert render(build) == '<div class="card" data-id="7">\n  <p>x</p>\n</div>\n'
@@ -144,12 +166,6 @@ def test_attribute_names_apply_to_tag_method() -> None:
 def test_unpacked_attribute_names_are_still_possible() -> None:
     result = render(lambda doc: doc.p("x", **{"xml:lang": "en"}))
     assert result == '<p xml:lang="en">x</p>\n'
-
-
-@pytest.mark.parametrize("name", ["", "a b", 'a"b', "a=b", "a>b", "a/b", "a'b"])
-def test_invalid_attribute_names_are_rejected(name: str) -> None:
-    with pytest.raises(ValueError, match="invalid attribute name"):
-        render(lambda doc: doc.p("x", **{name: "v"}))
 
 
 def test_number_content_is_converted() -> None:

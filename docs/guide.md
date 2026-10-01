@@ -68,22 +68,33 @@ with doc.div(id="main"):
 
 ### Attribute names
 
-Python keywords and hyphens cannot be written as keyword names,
-so two rules map them for you:
-a trailing underscore is dropped
-and every other underscore becomes a hyphen.
+Python keywords such as `class` and `for` cannot be keyword names,
+so a trailing underscore is dropped:
 
 ```python
-with doc.div(class_="card", data_id="7"):
+with doc.div(class_="card"):
     doc.label("Name", for_="name")
-# <div class="card" data-id="7">
+# <div class="card">
 #   <label for="name">Name</label>
 # </div>
 ```
 
-For names these rules cannot express, such as `xml:lang`,
-unpack a dictionary: `doc.p("hi", **{"xml:lang": "en"})`.
-Names that contain whitespace, quotes, `<`, `>`, `/` or `=` raise a {class}`ValueError`.
+Names with a hyphen, such as `data-*` and `aria-*`,
+are written as a dictionary under the prefix,
+which is flattened into one attribute per entry:
+
+```python
+doc.button("Close", data={"id": 7, "action": "close"}, aria={"label": "Close dialog"})
+# <button data-id="7" data-action="close" aria-label="Close dialog">Close</button>
+```
+
+The entries follow the same rules as other values, described below,
+and dictionaries may be nested.
+For any other name, such as `xml:lang`, unpack a dictionary:
+`doc.p("hi", **{"xml:lang": "en"})`.
+
+Names are written as given,
+so only pass names you control.
 
 ### Attribute values
 
@@ -92,6 +103,7 @@ Names that contain whitespace, quotes, `<`, `>`, `/` or `=` raise a {class}`Valu
 | a string | written, escaped |
 | a number | converted with {class}`str` and written |
 | `True` | the bare attribute, as in `<script defer>` |
+| a dictionary | flattened with the name as a prefix |
 | `False` or `None` | the attribute is left out |
 
 This makes optional attributes a matter of passing the value or `None`:

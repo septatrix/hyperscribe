@@ -3,23 +3,22 @@
 from __future__ import annotations
 
 import html
-import re
 from contextlib import AbstractContextManager
 from dataclasses import dataclass, field
-from functools import lru_cache
 from types import TracebackType
 from typing import TextIO, overload
 
-AttributeValue = str | int | float | bool | None
+AttributeValue = str | int | float | bool | None | dict[str, "AttributeValue"]
 """What an attribute may be set to.
 
 ``None`` and ``False`` omit the attribute,
 ``True`` writes it without a value (``<script defer>``),
+a dictionary is flattened into one attribute per entry
+with the name as a prefix (``data={"id": 7}`` gives ``data-id="7"``),
 and anything else is converted with :class:`str` and escaped.
 """
 
 _MISSING: object = object()
-_INVALID_NAME = re.compile(r"[\s\"'<>/=\x00]|^$")
 
 
 def _escape_text(value: str) -> str:
@@ -38,32 +37,26 @@ def _to_text(value: object) -> str:
     return str(value)
 
 
-@lru_cache(maxsize=1024)
-def _attribute_name(key: str) -> str:
-    """Turn a keyword into an attribute name.
+def _format_attributes(attrs: dict[str, AttributeValue], prefix: str = "") -> str:
+    """Write attributes in the order given, escaped for use in double quotes.
 
-    A trailing underscore is dropped, so ``class_`` is written ``class``,
-    and the remaining underscores become hyphens, so ``data_id`` is ``data-id``.
+    A trailing underscore is dropped from names, so ``class_`` is written ``class``.
     """
-    name = key[:-1] if key.endswith("_") else key
-    name = name.replace("_", "-")
-    if _INVALID_NAME.search(name):
-        raise ValueError(f"invalid attribute name: {key!r}")
-    return name
-
-
-def _format_attributes(attrs: dict[str, AttributeValue]) -> str:
-    """Write attributes in the order given, escaped for use in double quotes."""
     parts: list[str] = []
     for key, value in attrs.items():
         if value is None or value is False:
             continue
-        name = _attribute_name(key)
+        name = key[:-1] if key.endswith("_") else key
+        if prefix:
+            name = f"{prefix}-{name}"
         if value is True:
             parts.append(f" {name}")
+        elif type(value) is str:
+            parts.append(f' {name}="{html.escape(value, quote=True)}"')
+        elif isinstance(value, dict):
+            parts.append(_format_attributes(value, name))
         else:
-            text = value if type(value) is str else str(value)
-            parts.append(f' {name}="{html.escape(text, quote=True)}"')
+            parts.append(f' {name}="{html.escape(str(value), quote=True)}"')
     return "".join(parts)
 
 
@@ -217,11 +210,12 @@ class DocWriter:
         such as ``doc.tag("my-element")``.
         The name is positional-only, so ``name`` is free to be an attribute.
 
-        Attribute names are written with a trailing underscore dropped
-        and the remaining underscores turned into hyphens,
-        so ``class_="card"`` gives ``class="card"``
-        and ``data_id="7"`` gives ``data-id="7"``.
-        Use dictionary unpacking for names this cannot express,
+        A trailing underscore is dropped from attribute names,
+        so ``class_="card"`` gives ``class="card"``.
+        A dictionary is flattened with its name as a prefix,
+        so ``data={"id": 7}`` gives ``data-id="7"``
+        and ``aria={"label": "Close"}`` gives ``aria-label="Close"``.
+        Use dictionary unpacking for other names this cannot express,
         such as ``**{"xml:lang": "en"}``.
         """
         if attrs:
