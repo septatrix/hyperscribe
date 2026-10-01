@@ -9,6 +9,8 @@
 
 .. autofunction:: hyperscribe.escape
 
+.. autofunction:: hyperscribe.escape_silent
+
 .. autofunction:: hyperscribe.trust
 
 .. autodata:: hyperscribe.SafeStr

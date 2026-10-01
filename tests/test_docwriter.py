@@ -4,7 +4,7 @@ from io import StringIO
 
 import pytest
 
-from hyperscribe import DocWriter, escape, trust
+from hyperscribe import DocWriter, escape, escape_silent, trust
 
 
 class TrustedHTML:
@@ -150,6 +150,23 @@ def test_chaining_does_not_change_the_parent() -> None:
 def test_escape_escapes_text_but_not_quotes() -> None:
     assert escape('a & <b> "c"') == 'a &amp; &lt;b&gt; "c"'
     assert escape("plain") == "plain"
+
+
+def test_escape_silent_escapes_text_like_escape() -> None:
+    assert escape_silent('a & <b> "c"') == escape('a & <b> "c"')
+
+
+def test_escape_silent_turns_none_into_an_empty_string() -> None:
+    assert escape_silent(None) == ""
+
+
+def test_call_writes_escape_silent_result_verbatim() -> None:
+    def build(doc: DocWriter) -> None:
+        with doc.inline(), doc.tags.td:
+            doc(escape_silent(None))
+            doc(escape_silent("a < b"))
+
+    assert render(build) == "<td>a &lt; b</td>\n"
 
 
 def test_call_writes_escaped_text() -> None:

@@ -211,6 +211,19 @@ with doc.inline(), t.p:
 # <p>Hello, Ada &amp; co</p>
 ```
 
+Optional values, which may be `None`,
+go through {func}`~hyperscribe.escape_silent`,
+which is like {func}`~hyperscribe.escape` but writes `None` as an empty string
+instead of raising a {class}`TypeError`:
+
+```python
+from hyperscribe import escape_silent
+
+with doc.inline(), t.td:
+    doc(escape_silent(device.get("label")))
+# <td></td> if there is no label
+```
+
 For a dynamic string that is already valid HTML,
 such as markup read from a trusted file,
 {func}`~hyperscribe.trust` marks it as safe without escaping it:

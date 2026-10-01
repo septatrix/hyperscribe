@@ -72,6 +72,15 @@ def escape(value: str) -> SafeStr:
     return SafeStr(html.escape(value, quote=False))
 
 
+def escape_silent(value: str | None) -> SafeStr:
+    """Like :func:`escape`, but write ``None`` as an empty string.
+
+    Use it for optional values, such as a field that may be missing in some data,
+    where an empty result is what the page should show.
+    """
+    return SafeStr("") if value is None else escape(value)
+
+
 def trust(value: str) -> SafeStr:
     """Mark a string as safe to write as HTML, without escaping it.
 
