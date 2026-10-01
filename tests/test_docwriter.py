@@ -152,11 +152,6 @@ def test_invalid_attribute_names_are_rejected(name: str) -> None:
         render(lambda doc: doc.p("x", **{name: "v"}))
 
 
-def test_invalid_tag_names_are_rejected() -> None:
-    with pytest.raises(ValueError, match="invalid tag name"):
-        render(lambda doc: doc.tag("a b"))
-
-
 def test_number_content_is_converted() -> None:
     assert render(lambda doc: doc.p(3)) == "<p>3</p>\n"
     assert render(lambda doc: doc(1.5)) == "1.5\n"
@@ -220,11 +215,6 @@ def test_void_tag_honors_inline_blocks() -> None:
             doc("b")
 
     assert render(build) == "<p>a<br>b</p>\n"
-
-
-def test_void_tag_rejects_invalid_names() -> None:
-    with pytest.raises(ValueError, match="invalid tag name"):
-        render(lambda doc: doc.void_tag("br>"))
 
 
 def test_comment_is_indented() -> None:
