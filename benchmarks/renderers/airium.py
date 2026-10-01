@@ -25,6 +25,11 @@ def render(items: list[Item]) -> str:
         with doc.head():
             with doc.title():
                 doc("Articles")
+            doc.meta(charset="utf-8")
+            doc.meta(name="viewport", content="width=device-width, initial-scale=1")
+            doc.link(rel="stylesheet", href="/static/site.css")
+            with doc.script(src="/static/app.js", defer=True):
+                pass
         with doc.body():
             with doc.main():
                 with doc.nav():
@@ -33,8 +38,25 @@ def render(items: list[Item]) -> str:
                     render_topic_list(doc, topic_index)
                 with doc.ul():
                     for item in items:
-                        with doc.li():
-                            with doc.a(href=item["url"]):
+                        item_attributes = {"data-category": item["category"]}
+                        if item["featured"]:
+                            item_attributes["class"] = "featured"
+                        if item["draft"]:
+                            item_attributes["hidden"] = True
+                        link_attributes = {"href": item["url"]}
+                        if item["external"]:
+                            link_attributes["target"] = "_blank"
+                            link_attributes["rel"] = "noopener"
+                        with doc.li(**item_attributes):
+                            doc(f"<!-- article {item['id']} -->")
+                            doc.img(
+                                src=item["thumbnail"],
+                                alt=html.escape(item["title"], quote=False),
+                                width=64,
+                                height=64,
+                                loading="lazy",
+                            )
+                            with doc.a(**link_attributes):
                                 doc(html.escape(item["title"], quote=False))
                             with doc.p():
                                 doc(html.escape(item["summary"], quote=False))
@@ -43,6 +65,8 @@ def render(items: list[Item]) -> str:
                                     doc("Featured")
                             with doc.span():
                                 doc(item["category"])
+                            with doc.span(klass="rating"):
+                                doc(item["rating"])
                             if item["author"]:
                                 with doc.small(), doc.span():
                                     doc(

@@ -15,6 +15,29 @@ Renderer = Callable[[list[Item]], str]
 MEMORY_RESULTS: dict[str, tuple[int, int]] = {}
 
 
+# Elements without an end tag. Libraries write them as ``<img>`` or ``<img />``,
+# which is the same element, so neither form gets an end event in the shape.
+VOID_ELEMENTS = frozenset({"br", "hr", "img", "input", "link", "meta"})
+
+# Libraries write boolean attributes as ``hidden``, ``hidden=""``,
+# ``hidden="hidden"`` or ``hidden="true"``, which all mean the same.
+BOOLEAN_ATTRIBUTES = frozenset({"defer", "hidden"})
+
+
+def _normalize_attributes(
+    attrs: list[tuple[str, str | None]],
+) -> tuple[tuple[str, str | None], ...]:
+    # Libraries also order attributes differently, so the order is not compared.
+    return tuple(
+        sorted(
+            (name, "")
+            if name in BOOLEAN_ATTRIBUTES and value in (None, "", name, "true", "True")
+            else (name, value)
+            for name, value in attrs
+        )
+    )
+
+
 class _HTMLShape(HTMLParser):
     """Collect rendered tags, attributes, and text without indentation whitespace."""
 
@@ -23,14 +46,18 @@ class _HTMLShape(HTMLParser):
         self.parts: list[tuple[object, ...]] = []
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
-        self.parts.append(("start", tag, tuple(attrs)))
+        self.parts.append(("start", tag, _normalize_attributes(attrs)))
 
     def handle_startendtag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
-        self.parts.append(("start", tag, tuple(attrs)))
-        self.parts.append(("end", tag))
+        self.parts.append(("start", tag, _normalize_attributes(attrs)))
+        if tag not in VOID_ELEMENTS:
+            self.parts.append(("end", tag))
 
     def handle_endtag(self, tag: str) -> None:
         self.parts.append(("end", tag))
+
+    def handle_comment(self, data: str) -> None:
+        self.parts.append(("comment", data.strip()))
 
     def handle_data(self, data: str) -> None:
         self.parts.append(("text", data))
@@ -60,12 +87,18 @@ def html_shape(source: str) -> list[tuple[object, ...]]:
 
 
 def make_items(count: int) -> list[Item]:
+    """Build articles that vary so that every branch of the template is exercised."""
     categories = ("engineering", "research", "releases", "community")
     topics = ("python", "templates", "performance", "html", "tooling")
     return [
         {
+            "id": index,
             "title": f"Article {index}: <Python> & templates",
-            "url": f"/articles/{index}",
+            "url": (
+                f"https://example.org/articles/{index}"
+                if index % 7 == 0
+                else f"/articles/{index}"
+            ),
             "summary": (
                 f"A detailed summary for article {index}, covering HTML generation, "
                 "safe escaping, and performance tradeoffs for readers."
@@ -77,6 +110,10 @@ def make_items(count: int) -> list[Item]:
             if index % 5 == 0
             else [topics[index % len(topics)], topics[(index + 2) % len(topics)]],
             "comments": 0 if index % 6 == 0 else (index % 23) + 1,
+            "thumbnail": f"/thumbnails/{index}.png",
+            "external": index % 7 == 0,
+            "draft": index % 11 == 0,
+            "rating": (index % 5) + 1,
         }
         for index in range(count)
     ]

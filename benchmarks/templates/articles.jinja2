@@ -4,7 +4,12 @@
 <div>{% for topic in topics %}<span>{{ topic }}</span>{% if not loop.last %}, {% endif %}{% endfor %}</div>
 {%- endmacro %}
 
-{% block head %}<title>Articles</title>{% endblock %}
+{% block head %}<title>Articles</title>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="/static/site.css">
+<script src="/static/app.js" defer></script>
+{% endblock %}
 
 {% block navigation %}
   <nav>
@@ -15,11 +20,14 @@
 
 {% block content %}
   <ul>
-{% for item in items %}    <li>
-      <a href="{{ item.url }}">{{ item.title }}</a>
+{% for item in items %}    <li{% if item.featured %} class="featured"{% endif %} data-category="{{ item.category }}"{% if item.draft %} hidden{% endif %}>
+      <!-- article {{ item.id }} -->
+      <img src="{{ item.thumbnail }}" alt="{{ item.title }}" width="64" height="64" loading="lazy">
+      <a href="{{ item.url }}"{% if item.external %} target="_blank" rel="noopener"{% endif %}>{{ item.title }}</a>
       <p>{{ item.summary }}</p>
       {% if item.featured %}<strong>Featured</strong>{% endif %}
       <span>{{ item.category }}</span>
+      <span class="rating">{{ item.rating }}</span>
       {% if item.author %}<small><span>By {{ item.author }}</span></small>{% endif %}
       {% if item.tags %}{{ topic_list(item.tags) }}{% endif %}
       {% if item.comments %}<span>{{ item.comments }} comments</span>{% endif %}

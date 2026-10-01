@@ -4,6 +4,7 @@ from typing import TypedDict
 
 
 class Item(TypedDict):
+    id: int
     title: str
     url: str
     summary: str
@@ -12,3 +13,7 @@ class Item(TypedDict):
     author: str
     tags: list[str]
     comments: int
+    thumbnail: str
+    external: bool
+    draft: bool
+    rating: int

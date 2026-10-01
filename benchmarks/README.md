@@ -5,7 +5,16 @@ Cheetah3, Airium, Yattag, dominate, Ludic, Hyperscript, Tagflow, Hyperscribe,
 and `xml.etree.ElementTree`. The template includes
 conditional featured badges, optional authors, tag loops, and comment counts.
 It also renders a reusable topic-list component in the page navigation and for
-each article with tags. Jinja defines the component as a macro; each Python
+each article with tags.
+Each article further exercises what a real page needs besides nested elements:
+an HTML comment, a void `<img>` element with numeric attributes,
+attributes that are only present for some articles
+(`class="featured"`, `target` and `rel` on external links),
+a boolean `hidden` attribute for drafts,
+a hyphenated `data-category` attribute,
+and a numeric rating written as content.
+The head has void `<meta>` and `<link>` elements
+and a `<script defer>`. Jinja defines the component as a macro; each Python
 renderer exposes and calls a matching helper function.
 The default workload contains 500 articles and varies the data to exercise each
 branch. Jinja, Mako, and Cheetah3 each use a base template with overridable
@@ -16,6 +25,12 @@ navigation and content sections. The Jinja template lives in
 It renders each topic list on a single line with `doc.inline()`,
 which suppresses line breaks and indentation inside its block,
 so its output stays close to Jinja's.
+It also uses the attribute and content handling of the package:
+`None` omits an optional attribute,
+`True` writes a boolean attribute,
+`class_` and `data_category` become `class` and `data-category`,
+numbers are written as content and attributes without `str()`,
+and `doc.void_tag` and `doc.comment` write the void elements and the comments.
 Tagflow is the unrelated [`tagflow`](https://pypi.org/project/tagflow/) package from PyPI,
 which builds an ElementTree through context managers backed by context variables.
 
@@ -52,9 +67,13 @@ and `--benchmark-only` runs only the timings.
 
 `test_render.py` renders the same article list with each library.
 `test_output` first checks that every renderer produces the same document:
-it compares tags, attributes, and visible text
+it compares tags, attributes, comments, and visible text
 while ignoring indentation-only whitespace,
 because formatters lay out whitespace differently.
+Libraries also write void elements as `<img>` or `<img />`,
+order attributes differently,
+and write boolean attributes as `hidden`, `hidden=""`, `hidden="hidden"` or `hidden="true"`,
+so the comparison treats those as equal.
 `test_render` then times the render,
 excluding input construction and Jinja template compilation.
 `test_memory` measures the peak traced Python memory of one render
