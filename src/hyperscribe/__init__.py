@@ -67,12 +67,6 @@ def _format_attributes(attrs: dict[str, AttributeValue]) -> str:
     return "".join(parts)
 
 
-@lru_cache(maxsize=1024)
-def _check_tag_name(name: str) -> None:
-    if _INVALID_NAME.search(name):
-        raise ValueError(f"invalid tag name: {name!r}")
-
-
 @dataclass(slots=True)
 class _TagContext:
     """Write a tag while the document tracks its nesting for indentation."""
@@ -231,14 +225,12 @@ class DocWriter:
         such as ``**{"xml:lang": "en"}``.
         """
         if attrs:
-            _check_tag_name(name)
             attributes = _format_attributes(attrs)
             return _TagContext(self, (f"<{name}{attributes}>",), (f"</{name}>",))
 
         if context := self._tags.get(name):
             return context
 
-        _check_tag_name(name)
         context = _TagContext(self, (f"<{name}>",), (f"</{name}>",))
         self._tags[name] = context
         return context
@@ -250,7 +242,6 @@ class DocWriter:
         so there is nothing to enter as a context manager.
         Attributes work as in :meth:`tag`.
         """
-        _check_tag_name(name)
         self._write(
             f"{self._prefix(self._depth)}<{name}{_format_attributes(attrs)}>{self._end}"
         )
