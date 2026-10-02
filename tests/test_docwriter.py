@@ -148,8 +148,10 @@ def test_chaining_does_not_change_the_parent() -> None:
     assert render(build) == "<body>\n  <main>\n  </main>\n</body>\n<body>\n</body>\n"
 
 
-def test_escape_escapes_text_but_not_quotes() -> None:
-    assert escape('a & <b> "c"') == 'a &amp; &lt;b&gt; "c"'
+def test_escape_escapes_text_and_quotes() -> None:
+    assert (
+        escape("a & <b> \"c\" 'd'") == "a &amp; &lt;b&gt; &quot;c&quot; &#x27;d&#x27;"
+    )
     assert escape("plain") == "plain"
 
 
@@ -482,3 +484,37 @@ def test_comment_is_indented() -> None:
 def test_comment_cannot_end_early() -> None:
     with pytest.raises(ValueError, match="comment"):
         render(lambda doc: doc.comment("a --> <script>"))
+
+
+@pytest.mark.parametrize(
+    ("value", "escaped"),
+    [
+        ("&", "&amp;"),
+        ("<", "&lt;"),
+        (">", "&gt;"),
+        ('"', "&quot;"),
+        ("'", "&#x27;"),
+        ("plain", "plain"),
+    ],
+)
+def test_each_attribute_metacharacter_is_escaped(value: str, escaped: str) -> None:
+    result = render(lambda doc: doc.tags.a("x", title=f"a{value}b"))
+    assert result == f'<a title="a{escaped}b">x</a>\n'
+
+
+def test_integer_and_float_attributes_are_converted() -> None:
+    result = render(lambda doc: doc.tags.td("x", colspan=2, width=1.5, rowspan=0))
+    assert result == '<td colspan="2" width="1.5" rowspan="0">x</td>\n'
+
+
+def test_attribute_names_are_stable_across_repeated_calls() -> None:
+    def build(doc: DocWriter) -> None:
+        for _ in range(2):
+            doc.tags.label("x", for_="a", class_="b")
+            doc.tags.div("y", class_="c", data={"for_": 1})
+
+    assert (
+        render(build)
+        == ('<label for="a" class="b">x</label>\n<div class="c" data-for="1">y</div>\n')
+        * 2
+    )

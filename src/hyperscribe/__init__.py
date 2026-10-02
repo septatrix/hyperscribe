@@ -76,15 +76,22 @@ _MISSING: object = object()
 
 
 def escape(value: str) -> SafeStr:
-    """Escape ``&``, ``<`` and ``>`` so the text can be written as HTML.
+    """Escape ``&``, ``<``, ``>`` and quotes so the text can be written as HTML.
 
-    Quotes are left alone, so the result is not suitable for attribute values,
-    which are escaped by the writer anyway.
+    Quotes are escaped as well,
+    so the result is safe in text and in attribute values.
     """
-    # Skip the replacement work for the common case with no HTML metacharacters.
-    if "&" not in value and "<" not in value and ">" not in value:
+    # Looking for characters to escape is much cheaper than escaping,
+    # and most strings have none.
+    if (
+        "&" not in value
+        and "<" not in value
+        and ">" not in value
+        and '"' not in value
+        and "'" not in value
+    ):
         return SafeStr(value)
-    return SafeStr(html.escape(value, quote=False))
+    return SafeStr(html.escape(value))
 
 
 def escape_silent(value: str | None) -> SafeStr:
@@ -184,14 +191,14 @@ def _format_attributes(attrs: dict[str, AttributeValue], prefix: str = "") -> st
             if aria:
                 parts.append(f' {name}="false"')
         elif type(value) is str:
-            parts.append(f' {name}="{html.escape(value, quote=True)}"')
+            parts.append(f' {name}="{escape(value)}"')
         elif isinstance(value, dict):
             parts.append(_format_attributes(value, name))
         elif sys.version_info >= (3, 14) and isinstance(value, Template):
             text = _template_attribute_text(value)
-            parts.append(f' {name}="{html.escape(text, quote=True)}"')
+            parts.append(f' {name}="{escape(text)}"')
         else:
-            parts.append(f' {name}="{html.escape(str(value), quote=True)}"')
+            parts.append(f' {name}="{escape(str(value))}"')
     return "".join(parts)
 
 
