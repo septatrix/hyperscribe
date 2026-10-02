@@ -95,5 +95,11 @@ the benchmark still uses Jinja's normal `Template.render()` path.
 
 `test_escape.py` compares text and attribute escaping independently of document rendering.
 It benchmarks `html.escape`, chained `str.replace`,
-and a precomputed `str.maketrans` table with `str.translate`
-on short and long strings, and checks that they agree.
+a precomputed `str.maketrans` table with `str.translate`,
+two strategies that look for characters to escape before calling `html.escape`
+(chained `in` checks and a compiled regular expression),
+and a single-pass `re.sub`.
+Every implementation runs on short (48 characters) and long (4,096 characters) strings
+with no, little (one in 400 characters),
+or a lot of (one in four) characters that need escaping,
+and its result is checked against `html.escape`.
