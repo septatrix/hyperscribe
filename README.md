@@ -2,22 +2,23 @@
 
 A small, dependency-free HTML templating engine for Python.
 You write markup as ordinary Python code with context managers,
-and hyperscribe streams escaped, indented HTML to any file-like object.
+and hyperscribe streams indented HTML to any file-like object,
+escaping what you pass through `escape`.
 
 ```python
 from io import StringIO
 
-from hyperscribe import DocWriter
+from hyperscribe import DocWriter, escape
 
 output = StringIO()
 doc, t, v = DocWriter(output).parts
 
 with t.html(lang="en"):
     with t.body.main:
-        t.h1("Hello & welcome")
+        t.h1(escape("Hello & welcome"))
         with t.ul:
             for name in ("one", "two"):
-                t.li(name)
+                t.li(escape(name))
 
 print(output.getvalue())
 ```
@@ -39,10 +40,12 @@ print(output.getvalue())
 ## Features
 
 - Templates are plain Python: use loops, functions, and `@contextmanager` layouts.
-- Tag content and attribute values are escaped.
-- `doc(...)` writes trusted `LiteralString`, `__html__` objects, and numeric values
-  verbatim while preserving indentation; `escape` and `trust` mark other strings
-  as safe for it.
+- Attribute values are escaped.
+- `doc(...)` and tag content, as in `t.p(...)`, write trusted `LiteralString`,
+  `__html__` objects, and numeric values verbatim while preserving indentation;
+  `escape` and `trust` mark other strings as safe for them.
+- On Python 3.14 and newer, template strings (`t"..."`) are accepted too:
+  literal parts are trusted and interpolated values are escaped.
 - Output is streamed to anything with a `write(str)` method.
 - Fully typed, and supports Python 3.10 and newer.
 - No dependencies apart from `typing_extensions` for Python 3.10–3.12.
@@ -110,7 +113,7 @@ Two larger items remain.
   - The contents of `<style>` and `<script>` should be written verbatim.
   - The set of permitted attributes could be checked.
 - **Trusted content.**
-  `DocWriter.__call__` has preliminary support for trusted content:
+  `DocWriter.__call__` and tag content have preliminary support for trusted content:
   `LiteralString`, `SafeStr` from `escape` and `trust`,
   objects implementing `__html__` (such as MarkupSafe's `Markup`),
   and numeric values are written verbatim with indentation.

@@ -33,15 +33,17 @@ Tags are used in one of two ways.
 
 ### Leaf tags
 
-Calling a tag with a string writes the complete element on one line.
-The content is escaped.
+Calling a tag with content writes the complete element on one line.
+The content is handled like that of `doc(...)`, described under
+[Trusted content](#trusted-content): it is written as it is,
+so dynamic strings go through {func}`~hyperscribe.escape` first.
 
 ```python
-t.p("Fish & chips")
+t.p(escape("Fish & chips"))
 # <p>Fish &amp; chips</p>
 ```
 
-Content that is not a string is converted with {class}`str`,
+Numbers are converted with {class}`str`,
 so `t.td(3)` writes `<td>3</td>`.
 `None` is rejected with a {class}`TypeError`:
 it almost always means a value is missing,
@@ -77,6 +79,9 @@ Values are escaped for use inside double quotes.
 t.a("Home", href="/")
 with t.div(id="main"):
     ...
+# <a href="/">Home</a>
+# <div id="main">
+# </div>
 ```
 
 ### Attribute names
@@ -126,7 +131,7 @@ This makes optional attributes a matter of passing the value or `None`:
 ```python
 t.a("Docs", href=url, target="_blank" if external else None)
 t.script("", src="app.js", defer=True)
-# <a href="/docs">Docs</a>  or  <a href="/docs" target="_blank">Docs</a>
+# <a href="/docs">Docs</a>
 # <script src="app.js" defer></script>
 ```
 
@@ -170,29 +175,31 @@ Tags never change once created, so they can be stored and reused:
 
 ## Text
 
-Text passed as content to a tag is escaped,
-so dynamic or untrusted strings belong there:
+Text is written as it is, so a string that is not a literal
+has to be escaped first, whether it is the content of a tag or written with `doc(...)`:
 
 ```python
-t.span(user.name)
+t.span(escape(user.name))
 # <span>Ada &amp; co</span>
 ```
 
 ### Trusted content
 
-Calling the writer directly writes trusted content verbatim,
+Tag content and calling the writer directly write trusted content verbatim,
 with the current indentation and line ending.
 Its type annotation accepts {class}`typing.LiteralString`,
 {data}`~hyperscribe.SafeStr`,
-values implementing ``__html__`` (such as MarkupSafe's ``Markup``),
+values implementing ``__html__`` (such as MarkupSafe's {class}`~markupsafe.Markup`),
 and ``int`` or ``float`` values:
 
 ```python
 doc("<!DOCTYPE html>")
-with t.p:
+with doc.inline(), t.p:
     doc("Some ")  # LiteralString: written verbatim
     t.strong("important")
     doc(" text")  # LiteralString: written verbatim
+# <!DOCTYPE html>
+# <p>Some <strong>important</strong> text</p>
 ```
 
 These types are trust declarations;
@@ -221,7 +228,7 @@ from hyperscribe import escape_silent
 
 with doc.inline(), t.td:
     doc(escape_silent(device.get("label")))
-# <td></td> if there is no label
+# <td></td>
 ```
 
 For a dynamic string that is already valid HTML,
@@ -229,25 +236,85 @@ such as markup read from a trusted file,
 {func}`~hyperscribe.trust` marks it as safe without escaping it:
 
 ```python
-from pathlib import Path
-
 from hyperscribe import trust
 
-doc(trust(Path("footer.html").read_text()))
+# For example markup that was read from a trusted file
+doc(trust(rendered))
+# <b>trusted</b>
 ```
 
 Both return a {data}`~hyperscribe.SafeStr`.
 It only exists for type checkers and is a plain {class}`str` at runtime,
-so tag content and attribute values are still escaped:
-`t.p(trust("<b>"))` writes `<p>&lt;b&gt;</p>`.
-They are a minimal alternative to MarkupSafe,
-which works the same way with `doc(...)`.
+so attribute values are still escaped, whatever their type.
+They are a minimal alternative to [MarkupSafe](https://markupsafe.palletsprojects.com/),
+which works the same way with `doc(...)` and in tag content.
+
+### Template strings
+
+On Python 3.14 and newer, tag content and `doc(...)` also accept
+template strings (`t"..."`, {pep}`750`),
+which mix markup and values without any `escape` calls.
+The literal parts are trusted and written as they are,
+and the interpolated values are escaped unless they are trusted themselves:
+
+```python
+with doc.inline(), t.p:
+    doc(t"Hello, <b>{user.name}</b>! You have {count} messages.")
+# <p>Hello, <b>Ada &amp; co</b>! You have 3 messages.</p>
+```
+
+| Interpolated value | Written as |
+| --- | --- |
+| a string | escaped |
+| an `int` or `float` | `str(value)` |
+| an object with `__html__` (such as MarkupSafe's {class}`~markupsafe.Markup`) | its `__html__()` |
+| anything else, such as a {class}`~pathlib.Path` | `str(value)`, escaped |
+| `None` | a {class}`TypeError` |
+
+A conversion or format specifier, as in `{n:.2f}` or `{name!r}`,
+is applied first and its result is escaped like a string.
+Values such as dates have their own format specifiers:
+
+```python
+import datetime
+
+doc(t"{datetime.date(2026, 10, 2):%d.%m.%Y}")
+# 02.10.2026
+```
+
+Template strings are also accepted as attribute values:
+`t.a("x", href=t"/users/{user.id}?q={query}")`
+is escaped like any other attribute value.
+
+{func}`~hyperscribe.SafeStr` only exists for type checkers
+and is a plain {class}`str` at run time,
+so a string from {func}`~hyperscribe.escape` or {func}`~hyperscribe.trust`
+is escaped again when it is interpolated:
+
+```python
+doc(t"<p>{trust(rendered)}</p>")
+# <p>&lt;b&gt;trusted&lt;/b&gt;</p>
+```
+
+To put markup that is safe already into a template string,
+interpolate an object with `__html__`, such as MarkupSafe's {class}`~markupsafe.Markup`:
+
+```python
+from markupsafe import Markup
+
+doc(t"<p>{Markup(rendered)}</p>")
+# <p><b>trusted</b></p>
+```
+
+Escaping is for HTML text and attribute values only:
+template strings do not make it safe to interpolate into a `<script>` or `<style>` element,
+an event handler attribute or a URL scheme.
 
 ```{note}
 {meth}`~hyperscribe.DocWriter.text` and {meth}`~hyperscribe.DocWriter.write_raw`
 are deprecated.
 Use `doc(...)` for trusted content, including a doctype,
-and tag content or `doc(escape(value))` for anything else.
+and `doc(escape(value))` for anything else.
 ```
 
 ### Inline formatting
@@ -269,8 +336,8 @@ normal formatting resumes once the outermost one exits.
 
 ## Escaping
 
-Text content escapes `&`, `<` and `>`.
-Attribute values additionally escape quotes.
+{func}`~hyperscribe.escape` escapes `&`, `<` and `>`.
+Attribute values are always escaped, and additionally escape quotes.
 Nothing else is escaped,
 so do not use hyperscribe to write into `<script>` or `<style>` elements
 with untrusted data.
@@ -318,7 +385,9 @@ Jinja's `{% for x in xs if cond %}` becomes:
 for item in items:
     if not item.visible:
         continue
-    t.li(item.name)
+    t.li(escape(item.name))
+# <li>One</li>
+# <li>Two</li>
 ```
 
 The `loop` variable is `enumerate`.
@@ -327,8 +396,11 @@ The `loop` variable is `enumerate`.
 ```python
 visible = [item for item in items if item.visible]
 for index, item in enumerate(visible):
-    t.li(("+ " if index else "") + item.name)
+    t.li(escape(("+ " if index else "") + item.name))
 t.p(f"{len(visible)} items")
+# <li>One</li>
+# <li>+ Two</li>
+# <p>2 items</p>
 ```
 
 When something must be known before the loop starts,
@@ -339,7 +411,9 @@ as above.
 Optional attributes take `None`, so no branching is needed:
 
 ```python
-t.li(item.name, class_="done" if item.done else None)
+item = items[0]
+t.li(escape(item.name), class_="done" if item.done else None)
+# <li class="done">One</li>
 ```
 
 Text next to markup needs {meth}`~hyperscribe.DocWriter.inline`,
@@ -347,13 +421,14 @@ which is described above,
 so that no whitespace appears between them.
 
 Whitespace-sensitive elements such as `<pre>` and `<textarea>`
-already stay on one line when given their content directly, as in `t.pre(code)`.
+already stay on one line when given their content directly, as in `t.pre(escape(code))`.
 When they contain further markup, they need an inline block,
 or the indentation becomes part of their content:
 
 ```python
 with doc.inline(), t.pre:
-    doc(code)
+    doc(escape(code))
+# <pre>a &lt; b</pre>
 ```
 
 ## Layouts and components
@@ -366,7 +441,7 @@ The layout below yields once per replaceable section:
 from collections.abc import Iterator
 from typing import Literal
 
-from hyperscribe import DocWriter
+from hyperscribe import DocWriter, escape
 
 
 def topic_list(doc: DocWriter, topics: list[str]) -> None:
@@ -375,7 +450,7 @@ def topic_list(doc: DocWriter, topics: list[str]) -> None:
         for index, topic in enumerate(topics):
             if index:
                 doc(", ")
-            t.span(topic)
+            t.span(escape(topic))
 
 
 def page(doc: DocWriter) -> Iterator[Literal["head", "content"]]:
@@ -394,6 +469,15 @@ for section in page(doc):
             t.title("Topics")
         case "content":
             topic_list(doc, ["python", "html"])
+# <!DOCTYPE html>
+# <html lang="en">
+#   <head>
+#     <title>Topics</title>
+#   </head>
+#   <body>
+#     <div><span>python</span>, <span>html</span></div>
+#   </body>
+# </html>
 ```
 
 The `benchmarks/renderers/hyperscribe.py` module in the repository

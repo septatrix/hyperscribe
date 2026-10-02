@@ -4,7 +4,7 @@ from collections.abc import Iterator
 from io import StringIO
 from typing import Literal
 
-from hyperscribe import DocWriter
+from hyperscribe import DocWriter, escape
 
 from ..models import Item
 
@@ -29,7 +29,7 @@ def render_topic_list(doc: DocWriter, topics: list[str]) -> None:
         for index, topic in enumerate(topics):
             if index:
                 doc(", ")
-            t.span(topic)
+            t.span(escape(topic))
 
 
 def render(items: list[Item]) -> str:
@@ -67,20 +67,20 @@ def render(items: list[Item]) -> str:
                             loading="lazy",
                         )
                         t.a(
-                            item["title"],
+                            escape(item["title"]),
                             href=item["url"],
                             target="_blank" if item["external"] else None,
                             rel="noopener" if item["external"] else None,
                         )
-                        t.p(item["summary"])
+                        t.p(escape(item["summary"]))
                         if item["featured"]:
                             t.strong("Featured")
-                        t.span(item["category"])
+                        t.span(escape(item["category"]))
                         t.span(item["rating"], class_="rating")
                         if item["author"]:
-                            t.small.span(f"By {item['author']}")
+                            t.small.span(escape(f"By {item['author']}"))
                         if item["tags"]:
                             render_topic_list(doc, item["tags"])
                         if item["comments"]:
-                            t.span(f"{item['comments']} comments")
+                            t.span(escape(f"{item['comments']} comments"))
     return output.getvalue()

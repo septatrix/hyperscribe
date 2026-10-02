@@ -2,7 +2,7 @@
 
 The repository includes a benchmark comparing hyperscribe with
 Jinja, Mako, Cheetah3, Airium, Yattag, dominate, Ludic, Hyperscript, Tagflow,
-and `xml.etree.ElementTree`.
+and {mod}`xml.etree.ElementTree`.
 Each library renders the same article list
 with conditional badges, optional authors, tag loops, a reusable component,
 comments, void elements and optional or boolean attributes.
