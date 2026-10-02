@@ -302,18 +302,26 @@ class _TagBuilder:
         if attrs:
             if not openings:
                 raise TypeError("attributes need a tag, as in doc.tags.div(...)")
-            openings = (
-                *openings[:-1],
-                f"{openings[-1][:-1]}{_format_attributes(attrs)}>",
-            )
-        if content is _MISSING:
-            return _TagBuilder(self._doc, openings, self._closings) if attrs else self
+            formatted = _format_attributes(attrs)
+            if content is _MISSING:
+                return _TagBuilder(
+                    self._doc,
+                    (*openings[:-1], f"{openings[-1][:-1]}{formatted}>"),
+                    self._closings,
+                )
+            opening = f"{''.join(openings[:-1])}{openings[-1][:-1]}{formatted}>"
+        elif content is _MISSING:
+            return self
+        else:
+            opening = "".join(openings)
         doc = self._doc
-        text = _trusted_text(content)
-        doc._write(
-            f"{doc._prefix(doc._depth)}{''.join(openings)}"
-            f"{text}{''.join(self._closings)}{doc._end}"
-        )
+        text = content if type(content) is str else _trusted_text(content)
+        closing = "".join(self._closings)
+        try:
+            prefix = doc._prefixes[doc._depth]
+        except IndexError:
+            prefix = doc._prefix(doc._depth)
+        doc._write(f"{prefix}{opening}{text}{closing}{doc._end}")
         return None
 
     def __enter__(self) -> None:
