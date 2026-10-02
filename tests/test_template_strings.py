@@ -108,7 +108,7 @@ def test_the_result_of_a_date_format_spec_is_escaped() -> None:
 
 def test_conversion_is_applied_and_the_result_escaped() -> None:
     result = render(lambda doc: doc(template("{s!r}", s="<")))
-    assert result == "'&lt;'\n"
+    assert result == "&#x27;&lt;&#x27;\n"
 
 
 def test_converted_html_objects_are_escaped() -> None:

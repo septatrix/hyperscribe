@@ -406,8 +406,8 @@ normal formatting resumes once the outermost one exits.
 
 ## Escaping
 
-{func}`~hyperscribe.escape` escapes `&`, `<` and `>`.
-Attribute values are always escaped, and additionally escape quotes.
+{func}`~hyperscribe.escape` escapes `&`, `<`, `>` and both kinds of quotes,
+which is what attribute values are escaped with as well.
 Nothing else is escaped,
 so do not use hyperscribe to write into `<script>` or `<style>` elements
 with untrusted data.
