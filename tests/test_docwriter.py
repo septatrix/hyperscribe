@@ -30,9 +30,19 @@ def test_text_is_escaped_with_escape() -> None:
     assert result == "<p>a &amp; &lt;b&gt;</p>\n"
 
 
-def test_attributes_are_escaped() -> None:
-    result = render(lambda doc: doc.tags.a("x", href='a"b&c'))
+def test_attribute_strings_are_written_as_given() -> None:
+    result = render(lambda doc: doc.tags.a("x", href="/a?b=1&c=2", title=trust("<i>")))
+    assert result == '<a href="/a?b=1&c=2" title="<i>">x</a>\n'
+
+
+def test_escaped_attribute_strings_are_safe_in_double_quotes() -> None:
+    result = render(lambda doc: doc.tags.a("x", href=escape('a"b&c')))
     assert result == '<a href="a&quot;b&amp;c">x</a>\n'
+
+
+def test_attribute_objects_with_html_are_written_as_html() -> None:
+    result = render(lambda doc: doc.tags.a("x", title=TrustedHTML("&lt;")))
+    assert result == '<a title="&lt;">x</a>\n'
 
 
 def test_nested_tags_are_indented() -> None:
@@ -350,7 +360,9 @@ def test_only_the_trailing_underscore_is_dropped() -> None:
 
 
 def test_dictionary_attribute_is_flattened_with_a_prefix() -> None:
-    result = render(lambda doc: doc.tags.div("x", data={"id": 7, "user-name": "a&b"}))
+    result = render(
+        lambda doc: doc.tags.div("x", data={"id": 7, "user-name": escape("a&b")})
+    )
     assert result == '<div data-id="7" data-user-name="a&amp;b">x</div>\n'
 
 
@@ -370,8 +382,10 @@ def test_aria_booleans_are_written_as_strings() -> None:
     assert result == '<div aria-hidden="true" aria-expanded="false">x</div>\n'
 
 
-def test_arbitrary_objects_are_converted_with_str() -> None:
-    result = render(lambda doc: doc.voids.input(value=Decimal("1.25")))
+def test_other_objects_are_converted_with_str_at_run_time() -> None:
+    result = render(
+        lambda doc: doc.voids.input(value=Decimal("1.25"))  # type: ignore[arg-type]
+    )
     assert result == '<input value="1.25">\n'
 
 
@@ -449,8 +463,12 @@ def test_void_tag_writes_an_opening_tag_only() -> None:
     assert render(lambda doc: doc.voids["x-y"]()) == "<x-y>\n"
 
 
-def test_void_tag_has_attributes_that_are_escaped() -> None:
-    result = render(lambda doc: doc.voids.meta(name="a&b", content='x"y', defer=True))
+def test_void_tag_has_attributes_that_are_escaped_by_escape() -> None:
+    result = render(
+        lambda doc: doc.voids.meta(
+            name=escape("a&b"), content=escape('x"y'), defer=True
+        )
+    )
     assert result == '<meta name="a&amp;b" content="x&quot;y" defer>\n'
 
 
@@ -498,7 +516,7 @@ def test_comment_cannot_end_early() -> None:
     ],
 )
 def test_each_attribute_metacharacter_is_escaped(value: str, escaped: str) -> None:
-    result = render(lambda doc: doc.tags.a("x", title=f"a{value}b"))
+    result = render(lambda doc: doc.tags.a("x", title=escape(f"a{value}b")))
     assert result == f'<a title="a{escaped}b">x</a>\n'
 
 

@@ -55,20 +55,20 @@ def render(items: list[Item]) -> str:
                 for item in items:
                     with t.li(
                         class_="featured" if item["featured"] else None,
-                        data={"category": item["category"]},
+                        data={"category": escape(item["category"])},
                         hidden=item["draft"],
                     ):
                         doc.comment(f"article {item['id']}")
                         v.img(
-                            src=item["thumbnail"],
-                            alt=item["title"],
+                            src=escape(item["thumbnail"]),
+                            alt=escape(item["title"]),
                             width=64,
                             height=64,
                             loading="lazy",
                         )
                         t.a(
                             escape(item["title"]),
-                            href=item["url"],
+                            href=escape(item["url"]),
                             target="_blank" if item["external"] else None,
                             rel="noopener" if item["external"] else None,
                         )
