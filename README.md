@@ -68,6 +68,7 @@ make sync     # install dependencies
 make check    # lint, type-check, check formatting, and test
 make format   # format the code with ruff
 make docs     # build the documentation
+make doctest  # run the examples in the documentation
 ```
 
 Run `make help` to list all targets.

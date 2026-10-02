@@ -1,5 +1,5 @@
 .DEFAULT_GOAL := help
-.PHONY: help sync test docs lint format format-check check clean
+.PHONY: help sync test docs doctest lint format format-check check clean
 
 UV_RUN := uv run
 
@@ -15,6 +15,9 @@ test: ## Run the test suite
 docs: ## Build the HTML documentation into docs/_build/html
 	$(UV_RUN) sphinx-build -W --keep-going -b html docs docs/_build/html
 
+doctest: ## Run the examples in the documentation
+	$(UV_RUN) sphinx-build -W --keep-going -b doctest docs docs/_build/doctest
+
 lint: ## Lint with ruff and type-check with mypy
 	$(UV_RUN) ruff check .
 	@# mypy needs the benchmark libraries installed to check their types
@@ -26,7 +29,7 @@ format: ## Format the code with ruff
 format-check: ## Check formatting without changing files
 	$(UV_RUN) ruff format --check .
 
-check: lint format-check test ## Run everything CI would run
+check: lint format-check test doctest ## Run everything CI would run
 
 clean: ## Remove build artifacts and caches
 	rm -rf dist docs/_build .pytest_cache .mypy_cache .ruff_cache .benchmarks
