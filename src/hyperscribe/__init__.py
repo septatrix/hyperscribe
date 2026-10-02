@@ -272,7 +272,7 @@ class _TagBuilder:
         child = children[name] = _TagBuilder(
             self._doc,
             (*self._openings, f"<{name}>"),
-            (*self._closings, f"</{name}>"),
+            (f"</{name}>", *self._closings),
         )
         return child
 
@@ -312,7 +312,7 @@ class _TagBuilder:
         text = _trusted_text(content)
         doc._write(
             f"{doc._prefix(doc._depth)}{''.join(openings)}"
-            f"{text}{''.join(reversed(self._closings))}{doc._end}"
+            f"{text}{''.join(self._closings)}{doc._end}"
         )
         return None
 
@@ -329,7 +329,7 @@ class _TagBuilder:
         traceback: TracebackType | None,
     ) -> None:
         doc = self._doc
-        for closing in reversed(self._closings):
+        for closing in self._closings:
             doc._depth -= 1
             doc._write(f"{doc._prefix(doc._depth)}{closing}{doc._end}")
 
