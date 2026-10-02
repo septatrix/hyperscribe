@@ -40,7 +40,8 @@ print(output.getvalue())
 ## Features
 
 - Templates are plain Python: use loops, functions, and `@contextmanager` layouts.
-- Attribute values are escaped.
+- Attribute values follow the same rules as content:
+  literal strings, `escape`d strings and numbers are written verbatim.
 - `doc(...)` and tag content, as in `t.p(...)`, write trusted `LiteralString`,
   `__html__` objects, and numeric values verbatim while preserving indentation;
   `escape` and `trust` mark other strings as safe for them.

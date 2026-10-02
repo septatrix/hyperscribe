@@ -60,14 +60,40 @@ its literal parts are trusted and its interpolated values are escaped
 unless they are numbers, objects with ``__html__`` or other template strings.
 """
 
-AttributeValue = object
+if sys.version_info >= (3, 14):
+    AttributeValue: TypeAlias = (
+        LiteralString
+        | SafeStr
+        | SupportsHTML
+        | int
+        | float
+        | bool
+        | None
+        | dict[str, "AttributeValue"]
+        | Template
+    )
+else:
+    AttributeValue: TypeAlias = (
+        LiteralString
+        | SafeStr
+        | SupportsHTML
+        | int
+        | float
+        | bool
+        | None
+        | dict[str, "AttributeValue"]
+    )
 """What an attribute may be set to.
 
+Strings are written verbatim between double quotes, like tag content,
+so a string that is not a literal has to go through :func:`escape` first.
+Numbers and objects with ``__html__`` are written as they are,
+and a template string is handled like tag content:
+its literal parts are trusted and its interpolated values are escaped.
 ``None`` and ``False`` omit the attribute,
 ``True`` writes it without a value (``<script defer>``),
-a dictionary is flattened into one attribute per entry
-with the name as a prefix (``data={"id": 7}`` gives ``data-id="7"``),
-and anything else is converted with :class:`str` and escaped.
+and a dictionary is flattened into one attribute per entry
+with the name as a prefix (``data={"id": 7}`` gives ``data-id="7"``).
 Inside ``aria``, booleans are written as ``"true"`` and ``"false"`` instead,
 because ARIA attributes take strings rather than being HTML boolean attributes.
 """
@@ -145,15 +171,6 @@ if sys.version_info >= (3, 14):
             for item in template
         )
 
-    def _template_attribute_text(template: Template) -> str:
-        """Return the unescaped text of a template string used as an attribute value."""
-        return "".join(
-            item
-            if isinstance(item, str)
-            else format(convert(item.value, item.conversion), item.format_spec)
-            for item in template
-        )
-
 
 def _trusted_text(value: TrustedContent) -> str:
     """Return the text of trusted content, which is written without escaping it."""
@@ -173,7 +190,7 @@ def _trusted_text(value: TrustedContent) -> str:
 
 
 def _format_attributes(attrs: dict[str, AttributeValue], prefix: str = "") -> str:
-    """Write attributes in the order given, escaped for use in double quotes.
+    """Write attributes in the order given, with trusted values as they are.
 
     A trailing underscore is dropped from names, so ``class_`` is written ``class``.
     """
@@ -191,14 +208,11 @@ def _format_attributes(attrs: dict[str, AttributeValue], prefix: str = "") -> st
             if aria:
                 parts.append(f' {name}="false"')
         elif type(value) is str:
-            parts.append(f' {name}="{escape(value)}"')
+            parts.append(f' {name}="{value}"')
         elif isinstance(value, dict):
             parts.append(_format_attributes(value, name))
-        elif sys.version_info >= (3, 14) and isinstance(value, Template):
-            text = _template_attribute_text(value)
-            parts.append(f' {name}="{escape(text)}"')
         else:
-            parts.append(f' {name}="{escape(str(value))}"')
+            parts.append(f' {name}="{_trusted_text(value)}"')
     return "".join(parts)
 
 

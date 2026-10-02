@@ -79,7 +79,9 @@ it is emitted even if you leave the block early with `break` or `return`.
 ## Attributes
 
 Pass attributes as keyword arguments, both to leaf and to container tags.
-Values are escaped for use inside double quotes.
+Like tag content, string values are written as they are
+between double quotes, so dynamic strings go through
+{func}`~hyperscribe.escape` first, which also escapes quotes.
 
 ```{testcode}
 t.a("Home", href="/")
@@ -135,8 +137,10 @@ so only pass names you control.
 
 | Value | Result |
 | --- | --- |
-| a string | written, escaped |
-| a number or any other object | converted with {class}`str` and written |
+| a literal string, or one from {func}`~hyperscribe.escape` or {func}`~hyperscribe.trust` | written as it is |
+| an `int` or `float` | `str(value)` |
+| an object with `__html__` | its `__html__()` |
+| a template string | like [tag content](#template-strings), with its values escaped |
 | `True` | the bare attribute, as in `<script defer>` |
 | a dictionary | flattened with the name as a prefix |
 | `False` or `None` | the attribute is left out |
@@ -144,9 +148,15 @@ so only pass names you control.
 This makes optional attributes a matter of passing the value or `None`:
 
 ```{testcode}
-t.a("Docs", href=url, target="_blank" if external else None)
+t.a("Docs", href=escape(url), target="_blank" if external else None)
 t.script("", src="app.js", defer=True)
 ```
+
+As with content, a type checker that supports `LiteralString`, such as pyright,
+rejects a plain `str` variable as an attribute value,
+and the writer does not escape anything itself:
+a string that comes from user input and is not passed through
+{func}`~hyperscribe.escape` can break out of the attribute.
 
 ```{testoutput}
 <a href="/docs">Docs</a>
@@ -284,7 +294,8 @@ doc(trust(rendered))
 
 Both return a {data}`~hyperscribe.SafeStr`.
 It only exists for type checkers and is a plain {class}`str` at runtime,
-so attribute values are still escaped, whatever their type.
+so type checkers can tell trusted strings from the rest,
+in attribute values as well as in content.
 They are a minimal alternative to [MarkupSafe](https://markupsafe.palletsprojects.com/),
 which works the same way with `doc(...)` and in tag content.
 
@@ -336,8 +347,8 @@ doc(t"{datetime.date(2026, 10, 2):%d.%m.%Y}")
 ```
 
 Template strings are also accepted as attribute values:
-`t.a("x", href=t"/users/{user.id}?q={query}")`
-is escaped like any other attribute value.
+in `t.a("x", href=t"/users/{user.id}?q={query}")`,
+the literal parts are trusted and the interpolated values are escaped as above.
 
 {func}`~hyperscribe.SafeStr` only exists for type checkers
 and is a plain {class}`str` at run time,
@@ -407,7 +418,10 @@ normal formatting resumes once the outermost one exits.
 ## Escaping
 
 {func}`~hyperscribe.escape` escapes `&`, `<`, `>` and both kinds of quotes,
-which is what attribute values are escaped with as well.
+so its result is safe in text and in double-quoted attribute values.
+The writer does not escape anything itself,
+so every dynamic string, in tag content and in attribute values alike,
+has to go through it.
 Nothing else is escaped,
 so do not use hyperscribe to write into `<script>` or `<style>` elements
 with untrusted data.

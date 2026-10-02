@@ -18,6 +18,9 @@
 
 .. autodata:: hyperscribe.TrustedContent
    :annotation:
+
+.. autodata:: hyperscribe.AttributeValue
+   :annotation:
 ```
 
 ## Tag objects
