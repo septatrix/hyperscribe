@@ -25,8 +25,9 @@ def test_leaf_tag_is_written_on_one_line() -> None:
     assert render(lambda doc: doc.tags.p("hello")) == "<p>hello</p>\n"
 
 
-def test_text_is_escaped() -> None:
-    assert render(lambda doc: doc.tags.p("a & <b>")) == "<p>a &amp; &lt;b&gt;</p>\n"
+def test_text_is_escaped_with_escape() -> None:
+    result = render(lambda doc: doc.tags.p(escape("a & <b>")))
+    assert result == "<p>a &amp; &lt;b&gt;</p>\n"
 
 
 def test_attributes_are_escaped() -> None:
@@ -152,6 +153,22 @@ def test_escape_escapes_text_but_not_quotes() -> None:
     assert escape("plain") == "plain"
 
 
+class HTMLInt(int):
+    def __html__(self) -> str:
+        return "<b>int</b>"
+
+
+class HTMLFloat(float):
+    def __html__(self) -> str:
+        return "<b>float</b>"
+
+
+def test_html_protocol_wins_over_numeric_subclasses() -> None:
+    assert render(lambda doc: doc(HTMLInt(3))) == "<b>int</b>\n"
+    assert render(lambda doc: doc(HTMLFloat(1.5))) == "<b>float</b>\n"
+    assert render(lambda doc: doc.tags.p(HTMLInt(3))) == "<p><b>int</b></p>\n"
+
+
 def test_escape_silent_escapes_text_like_escape() -> None:
     assert escape_silent('a & <b> "c"') == escape('a & <b> "c"')
 
@@ -182,9 +199,41 @@ def test_call_writes_trusted_strings_verbatim() -> None:
     assert render(lambda doc: doc(trust(markup))) == "<b>x</b>\n"
 
 
-def test_tag_content_escapes_safe_strings_again() -> None:
+def test_tag_content_is_trusted_like_call() -> None:
+    result = render(lambda doc: doc.tags.p("<b>"))
+    assert result == "<p><b></p>\n"
+
+
+def test_tag_content_writes_safe_strings_verbatim() -> None:
     result = render(lambda doc: doc.tags.p(trust("<b>")))
-    assert result == "<p>&lt;b&gt;</p>\n"
+    assert result == "<p><b></p>\n"
+
+
+def test_tag_content_writes_html_protocol_content_verbatim() -> None:
+    result = render(lambda doc: doc.tags.p(TrustedHTML("<b>x</b>")))
+    assert result == "<p><b>x</b></p>\n"
+
+
+def test_tag_content_and_call_write_the_same_text() -> None:
+    values = [
+        "1 < 2",
+        escape("1 < 2"),
+        trust("<b>"),
+        TrustedHTML("<i>x</i>"),
+        3,
+        1.5,
+    ]
+    for value in values:
+        in_tag = render(lambda doc, value=value: doc.tags.span(value))  # type: ignore[misc]
+        called = render(lambda doc, value=value: doc(value))  # type: ignore[misc]
+        assert in_tag == f"<span>{called.strip()}</span>\n"
+
+
+def test_none_is_rejected_by_tag_content_and_call() -> None:
+    with pytest.raises(TypeError, match="None"):
+        render(lambda doc: doc.tags.p(None))  # type: ignore[call-overload]
+    with pytest.raises(TypeError, match="None"):
+        render(lambda doc: doc(None))  # type: ignore[arg-type]
 
 
 def test_call_writes_trusted_text_verbatim() -> None:
@@ -364,7 +413,7 @@ def test_number_content_is_converted() -> None:
 
 def test_none_content_is_rejected() -> None:
     with pytest.raises(TypeError, match="None"):
-        render(lambda doc: doc.tags.p(None))
+        render(lambda doc: doc.tags.p(None))  # type: ignore[call-overload]
 
 
 def test_call_converts_non_string_values_without_escaping() -> None:

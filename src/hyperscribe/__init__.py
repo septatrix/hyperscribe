@@ -8,6 +8,7 @@ from contextlib import AbstractContextManager
 from dataclasses import dataclass, field
 from types import TracebackType
 from typing import (
+    Any,
     NewType,
     Protocol,
     TextIO,
@@ -26,6 +27,9 @@ if sys.version_info >= (3, 11):
 else:
     from typing_extensions import LiteralString
 
+if sys.version_info >= (3, 14):
+    from string.templatelib import Interpolation, Template, convert
+
 
 @runtime_checkable
 class SupportsHTML(Protocol):
@@ -38,12 +42,23 @@ SafeStr = NewType("SafeStr", str)
 """A string that is safe to write as HTML, returned by :func:`escape` and :func:`trust`.
 
 It only exists for type checkers; at runtime it is a plain :class:`str`.
-Tag content and attribute values are therefore escaped as usual,
-so pass it to :meth:`DocWriter.__call__` to write it verbatim.
+Attribute values are escaped as usual, whatever their type.
 """
 
-TrustedContent: TypeAlias = LiteralString | SafeStr | SupportsHTML | int | float
-"""Content accepted by :class:`DocWriter` without explicitly calling ``text``."""
+if sys.version_info >= (3, 14):
+    TrustedContent: TypeAlias = (
+        LiteralString | SafeStr | SupportsHTML | int | float | Template
+    )
+else:
+    TrustedContent: TypeAlias = LiteralString | SafeStr | SupportsHTML | int | float
+"""Content that is written verbatim, by :class:`DocWriter` and by tags alike.
+
+Strings built from anything else, such as user input,
+have to go through :func:`escape` first.
+On Python 3.14 and newer, a template string (``t"..."``) is accepted as well:
+its literal parts are trusted and its interpolated values are escaped
+unless they are numbers, objects with ``__html__`` or other template strings.
+"""
 
 AttributeValue = object
 """What an attribute may be set to.
@@ -89,10 +104,62 @@ def trust(value: str) -> SafeStr:
     return SafeStr(value)
 
 
-def _to_text(value: object) -> str:
-    """Convert content to a string, refusing ``None``, which is almost always a bug."""
+if sys.version_info >= (3, 14):
+
+    def _interpolated_text(interpolation: Interpolation) -> str:
+        """Return the text of a value in a template string, escaped unless trusted.
+
+        Numbers and objects with ``__html__`` are trusted
+        when they are interpolated as they are.
+        Anything else, and anything that was converted or formatted,
+        is turned into a string and escaped.
+        """
+        value = interpolation.value
+        if interpolation.conversion is None and not interpolation.format_spec:
+            if hasattr(value, "__html__"):
+                return value.__html__()
+            if isinstance(value, (int, float)):
+                return str(value)
+            if value is None:
+                raise TypeError(
+                    f"{{{interpolation.expression}}} is None; "
+                    "interpolate a string or use escape_silent"
+                )
+        else:
+            value = format(
+                convert(value, interpolation.conversion), interpolation.format_spec
+            )
+        return escape(str(value))
+
+    def _template_text(template: Template) -> str:
+        """Return the text of a template string, trusting only its literal parts."""
+        return "".join(
+            item if isinstance(item, str) else _interpolated_text(item)
+            for item in template
+        )
+
+    def _template_attribute_text(template: Template) -> str:
+        """Return the unescaped text of a template string used as an attribute value."""
+        return "".join(
+            item
+            if isinstance(item, str)
+            else format(convert(item.value, item.conversion), item.format_spec)
+            for item in template
+        )
+
+
+def _trusted_text(value: TrustedContent) -> str:
+    """Return the text of trusted content, which is written without escaping it."""
+    # Exact strings are by far the most common content.
+    # Subclasses and other types may implement __html__, so they are looked at below.
+    # The attribute is looked up instead of calling isinstance with SupportsHTML,
+    # which is about fifty times slower for objects that do not have it.
     if type(value) is str:
         return value
+    if hasattr(value, "__html__"):
+        return value.__html__()
+    if sys.version_info >= (3, 14) and isinstance(value, Template):
+        return _template_text(value)
     if value is None:
         raise TypeError("content must not be None; pass a string or omit it")
     return str(value)
@@ -120,6 +187,9 @@ def _format_attributes(attrs: dict[str, AttributeValue], prefix: str = "") -> st
             parts.append(f' {name}="{html.escape(value, quote=True)}"')
         elif isinstance(value, dict):
             parts.append(_format_attributes(value, name))
+        elif sys.version_info >= (3, 14) and isinstance(value, Template):
+            text = _template_attribute_text(value)
+            parts.append(f' {name}="{html.escape(text, quote=True)}"')
         else:
             parts.append(f' {name}="{html.escape(str(value), quote=True)}"')
     return "".join(parts)
@@ -189,16 +259,21 @@ class _TagBuilder:
     def __call__(self, /, **attrs: AttributeValue) -> _TagBuilder: ...
 
     @overload
-    def __call__(self, content: object, /, **attrs: AttributeValue) -> None: ...
+    def __call__(self, content: TrustedContent, /, **attrs: AttributeValue) -> None: ...
 
     def __call__(
-        self, content: object = _MISSING, /, **attrs: AttributeValue
+        self,
+        content: Any = _MISSING,
+        /,
+        **attrs: AttributeValue,
     ) -> _TagBuilder | None:
         """Write a leaf element when given content, else return a builder.
 
         Attributes are added to the innermost tag,
         after any it was given by an earlier call.
-        Content that is not a string is converted with :class:`str`.
+        The content is handled like that of :meth:`DocWriter.__call__`:
+        it is written verbatim, so a string that is not a literal
+        has to go through :func:`escape` first.
         ``None`` is rejected with a :class:`TypeError`
         instead of being mistaken for missing content.
         """
@@ -213,7 +288,7 @@ class _TagBuilder:
         if content is _MISSING:
             return _TagBuilder(self._doc, openings, self._closings) if attrs else self
         doc = self._doc
-        text = escape(content if type(content) is str else _to_text(content))
+        text = _trusted_text(content)
         doc._write(
             f"{doc._prefix(doc._depth)}{''.join(openings)}"
             f"{text}{''.join(reversed(self._closings))}{doc._end}"
@@ -320,17 +395,12 @@ class DocWriter:
     def __call__(self, value: TrustedContent) -> None:
         """Write trusted content verbatim, preserving the current indentation.
 
-        Strings with non-literal provenance must be passed to :meth:`text`.
+        Strings with non-literal provenance must be passed to :func:`escape`.
         Objects implementing ``__html__`` contribute their trusted HTML string;
         literal strings and primitive numeric values are also written verbatim.
+        Tag content, as in ``doc.tags.p(...)``, is handled the same way.
         """
-        if isinstance(value, str):
-            content = value
-        elif isinstance(value, SupportsHTML):
-            content = value.__html__()
-        else:
-            content = str(value)
-        self._write(f"{self._prefix(self._depth)}{content}{self._end}")
+        self._write(f"{self._prefix(self._depth)}{_trusted_text(value)}{self._end}")
 
     def inline(self) -> AbstractContextManager[None]:
         """Suppress line breaks and indentation for the markup written in the block.
@@ -391,11 +461,6 @@ class DocWriter:
     def text(self, value: object) -> None:
         """Write escaped text to the document on its own line.
 
-        Values that are not strings are converted with :class:`str`,
-        but ``None`` raises a :class:`TypeError`.
+        Values that are not strings are converted with :class:`str`.
         """
-        self._write(
-            f"{self._prefix(self._depth)}"
-            f"{escape(value if type(value) is str else _to_text(value))}"
-            f"{self._end}"
-        )
+        self._write(f"{self._prefix(self._depth)}{escape(str(value))}{self._end}")

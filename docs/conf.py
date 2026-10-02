@@ -24,7 +24,10 @@ autodoc_typehints = "signature"
 autodoc_typehints_format = "short"
 python_use_unqualified_type_names = True
 
-intersphinx_mapping = {"python": ("https://docs.python.org/3", None)}
+intersphinx_mapping = {
+    "python": ("https://docs.python.org/3", None),
+    "markupsafe": ("https://markupsafe.palletsprojects.com/en/stable/", None),
+}
 
 html_theme = "furo"
 html_title = f"hyperscribe {release}"
