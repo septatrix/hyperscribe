@@ -1,7 +1,7 @@
 # Python HTML templating benchmark
 
 This directory compares rendering the same article list with Jinja, Mako,
-Cheetah3, Airium, Yattag, dominate, Ludic, Hyperscript, Tagflow, Hyperscribe,
+Cheetah3, Airium, Yattag, dominate, Ludic, Hyperscript, htpy, Tagflow, Hyperscribe,
 and `xml.etree.ElementTree`. The template includes
 conditional featured badges, optional authors, tag loops, and comment counts.
 It also renders a reusable topic-list component in the page navigation and for
