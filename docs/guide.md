@@ -588,6 +588,135 @@ for section in page(doc):
 The `benchmarks/renderers/hyperscribe.py` module in the repository
 shows a larger example.
 
+## Partial responses
+
+Libraries such as [htmx](https://htmx.org/) update a page
+by requesting a piece of HTML from the server
+and swapping it into the page in place of an element.
+The server then renders part of a page on its own,
+and the same part again within the full page.
+Template engines need extra support for this,
+such as [jinja2-fragments](https://github.com/sponsfreixes/jinja2-fragments),
+which renders a single block of a Jinja template.
+With hyperscribe, components are functions,
+so that part is a function that both responses call.
+
+The page below lists todos, shows how many there are, and has a form to add one.
+htmx posts the form and replaces the list with the response,
+as its `hx-*` attributes say:
+
+```{testcode}
+from hyperscribe import DocWriter, escape
+
+
+def todo_list(doc: DocWriter, todos: list[str]) -> None:
+    t = doc.tags
+    with t.ul(id="todos"):
+        for todo in todos:
+            t.li(escape(todo))
+
+
+def todo_count(doc: DocWriter, count: int, *, oob: bool = False) -> None:
+    doc.tags.p(count, id="todo-count", hx={"swap-oob": "true" if oob else None})
+
+
+def todo_page(doc: DocWriter, todos: list[str]) -> None:
+    t, v = doc.tags, doc.voids
+    doc("<!DOCTYPE html>")
+    with t.html(lang="en"):
+        with t.head:
+            t.title("Todos")
+            t.script("", src="https://unpkg.com/htmx.org@4.0.0")
+        with t.body:
+            t.h1("Todos")
+            todo_count(doc, len(todos))
+            todo_list(doc, todos)
+            with t.form(hx={"post": "/todos", "target": "#todos", "swap": "outerHTML"}):
+                v.input(name="todo", required=True)
+                t.button("Add")
+
+
+todo_page(doc, ["Buy milk"])
+```
+
+```{testoutput}
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <title>Todos</title>
+    <script src="https://unpkg.com/htmx.org@4.0.0"></script>
+  </head>
+  <body>
+    <h1>Todos</h1>
+    <p id="todo-count">1</p>
+    <ul id="todos">
+      <li>Buy milk</li>
+    </ul>
+    <form hx-post="/todos" hx-target="#todos" hx-swap="outerHTML">
+      <input name="todo" required>
+      <button>Add</button>
+    </form>
+  </body>
+</html>
+```
+
+The handler for the form writes the list and the count on their own with a new writer.
+htmx 4 says in the `HX-Request-Type` header which of the two it expects:
+`partial` when it swaps part of the page,
+and `full` when it replaces the whole body or picks its content out of the response with `hx-select`,
+as when it restores a page from its history.
+A handler that serves both renders the fragment only for `partial`.
+Since the response depends on that header,
+it also needs `Vary: HX-Request-Type`,
+so that caches keep the page and the fragment apart.
+How the request is read depends on the web framework;
+here it is reduced to a flag:
+
+```{testcode}
+from io import StringIO
+
+
+def render(todos: list[str], *, partial: bool) -> str:
+    output = StringIO()
+    doc = DocWriter(output)
+    if partial:
+        todo_list(doc, todos)
+        todo_count(doc, len(todos), oob=True)
+    else:
+        todo_page(doc, todos)
+    return output.getvalue()
+
+
+print(render(["Buy milk", "Fish & chips"], partial=True), end="")
+```
+
+```{testoutput}
+<ul id="todos">
+  <li>Buy milk</li>
+  <li>Fish &amp; chips</li>
+</ul>
+<p id="todo-count" hx-swap-oob="true">2</p>
+```
+
+The list replaces the form's target, as before.
+To update several parts of the page with one response,
+the handler calls several components one after another:
+htmx swaps elements marked with `hx-swap-oob`
+into the page in place of those with the same `id`,
+so `todo_count` takes a flag to add that attribute
+when it is sent next to the list instead of within the page.
+
+The response is written starting at the left margin,
+since the new writer has not opened any tags.
+Unlike a Jinja block, which can use any variable of the page,
+each function names everything it needs as a parameter,
+so a type checker can verify each call.
+
+Layouts that yield their sections, as in the previous section,
+work the same way:
+to render one section on its own,
+call what its `case` does without going through the layout.
+
 ## Streaming
 
 Because output goes straight to the object you provide,
