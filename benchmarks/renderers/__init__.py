@@ -17,6 +17,7 @@ RENDERERS = {
     "Ludic": "ludic",
     "ElementTree": "element_tree",
     "Hyperscript": "hyperscript",
+    "htpy": "htpy",
     "Mako": "mako",
     "Cheetah3": "cheetah",
 }
