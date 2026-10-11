@@ -1,0 +1,394 @@
+"""Translate a Jinja template into Python that mypy can check.
+
+The output is never executed.
+It keeps the *types* of the template's expressions and drops everything else:
+literal text disappears, ``{{ expr }}`` becomes ``emit(expr)``,
+``{% for %}`` becomes a ``for`` loop, macros and blocks become nested functions,
+and the declared context is the type of a ``ctx`` parameter.
+
+A template opts in with a leading comment::
+
+    {# tplcheck
+       context: myapp.views.ArticlesContext
+       from collections.abc import Sequence
+       macro topic_list(topics: Sequence[str])
+    #}
+
+``context:`` names the TypedDict of the variables passed to ``render()``.
+``import``/``from`` lines are copied verbatim into the shadow module.
+``macro`` lines annotate macro parameters (Jinja has no syntax for that).
+"""
+
+from __future__ import annotations
+
+import ast
+import re
+from dataclasses import dataclass, field
+
+from jinja2 import Environment, nodes
+
+HEADER = re.compile(r"\A\s*\{#-?\s*tplcheck\b(?P<body>.*?)-?#\}", re.DOTALL)
+
+GLOBALS = frozenset({"range", "dict", "lipsum", "cycler", "joiner", "namespace"})
+
+# Jinja names that are Python builtins or keywords in the stub modules.
+RENAMED = {
+    "int": "int_",
+    "float": "float_",
+    "abs": "abs_",
+    "round": "round_",
+    "sum": "sum_",
+    "list": "list_",
+    "in": "in_",
+}
+
+COMPARE = {
+    "eq": "==",
+    "ne": "!=",
+    "gt": ">",
+    "gteq": ">=",
+    "lt": "<",
+    "lteq": "<=",
+    "in": "in",
+    "notin": "not in",
+}
+
+BINARY = {
+    nodes.Add: "+",
+    nodes.Sub: "-",
+    nodes.Mul: "*",
+    nodes.Div: "/",
+    nodes.FloorDiv: "//",
+    nodes.Mod: "%",
+    nodes.Pow: "**",
+}
+
+
+class UnsupportedError(Exception):
+    """A template feature the shadow translation does not model (yet)."""
+
+    def __init__(self, what: str, lineno: int) -> None:
+        super().__init__(what)
+        self.what = what
+        self.lineno = lineno
+
+
+@dataclass
+class Header:
+    context: str | None = None
+    imports: list[str] = field(default_factory=list)
+    macros: dict[str, ast.arguments] = field(default_factory=dict)
+
+
+def parse_header(source: str) -> Header | None:
+    """Return the ``{# tplcheck ... #}`` header, or None if the template has none."""
+    match = HEADER.match(source)
+    if match is None:
+        return None
+    header = Header()
+    for raw in match["body"].splitlines():
+        line = raw.strip()
+        if not line:
+            continue
+        if line.startswith("context:"):
+            header.context = line.removeprefix("context:").strip()
+        elif line.startswith(("import ", "from ")):
+            header.imports.append(line)
+        elif line.startswith("macro "):
+            module = ast.parse(f"def {line.removeprefix('macro ')}: ...")
+            func = module.body[0]
+            assert isinstance(func, ast.FunctionDef)
+            header.macros[func.name] = func.args
+        else:
+            raise ValueError(f"unknown tplcheck header line: {line!r}")
+    return header
+
+
+class Emitter:
+    def __init__(self, source: str, source_name: str, environment: Environment) -> None:
+        self.source = source
+        self.source_name = source_name
+        self.header = parse_header(source)
+        if self.header is None:
+            raise ValueError(f"{source_name} has no tplcheck header")
+        self.tree = environment.parse(source, source_name)
+        self.lines: list[str] = []
+        self.depth = 1
+        self.counter = 0
+        # Template name -> Python name, innermost scope last.
+        # scopes[0] is the template level, which blocks and macros can see.
+        self.scopes: list[dict[str, str]] = [{}]
+        self.has_extends = False
+
+    # -- output helpers -------------------------------------------------
+
+    def line(self, text: str, lineno: int) -> None:
+        self.lines.append(f"{'    ' * self.depth}{text}  # tpl:{lineno}")
+
+    def suite(self, body: list[nodes.Node], lineno: int) -> None:
+        """Emit an indented block, with ``pass`` if it ends up empty."""
+        self.depth += 1
+        before = len(self.lines)
+        for node in body:
+            self.statement(node)
+        if len(self.lines) == before:
+            self.line("pass", lineno)
+        self.depth -= 1
+
+    def fresh(self, name: str) -> str:
+        self.counter += 1
+        return f"l_{name}_{self.counter}"
+
+    def lookup(self, name: str) -> str | None:
+        for scope in reversed(self.scopes):
+            if name in scope:
+                return scope[name]
+        return None
+
+    # -- entry point ----------------------------------------------------
+
+    def generate(self) -> str:
+        assert self.header is not None
+        ctx_type = self.header.context or "dict[str, Any]"
+        context_module = ctx_type.rpartition(".")[0]
+        head = [
+            f"# tplcheck: {self.source_name}",
+            "# Generated by tplcheck; never executed, only type-checked.",
+            "from __future__ import annotations",
+            "from typing import Any",
+            "from markupsafe import Markup",
+            "from tplcheck import concat_, emit, getattr_, loop_, undefined_",
+            "from tplcheck import filters as f, globals_ as g, tests as t",
+            *self.header.imports,
+        ]
+        if context_module:
+            head.append(f"import {context_module}")
+        head += ["", f"def check(ctx: {ctx_type}) -> None:"]
+        for node in self.tree.body:
+            self.statement(node)
+        if not self.lines:
+            self.line("pass", 1)
+        return "\n".join([*head, *self.lines, ""])
+
+    # -- statements -----------------------------------------------------
+
+    def statement(self, node: nodes.Node) -> None:
+        handler = getattr(self, f"stmt_{type(node).__name__}", None)
+        if handler is None:
+            raise UnsupportedError(
+                f"{type(node).__name__} is not supported", node.lineno
+            )
+        handler(node)
+
+    def stmt_Extends(self, node: nodes.Extends) -> None:
+        self.has_extends = True
+
+    def stmt_Output(self, node: nodes.Output) -> None:
+        if self.depth == 1 and self.has_extends:
+            return  # Jinja discards output outside blocks in a child template
+        for child in node.nodes:
+            if not isinstance(child, nodes.TemplateData):
+                self.line(f"emit({self.expr(child)})", child.lineno)
+
+    def stmt_If(self, node: nodes.If) -> None:
+        self.line(f"if {self.expr(node.test)}:", node.lineno)
+        self.suite(node.body, node.lineno)
+        for branch in node.elif_:
+            self.line(f"elif {self.expr(branch.test)}:", branch.lineno)
+            self.suite(branch.body, branch.lineno)
+        if node.else_:
+            self.line("else:", node.lineno)
+            self.suite(node.else_, node.lineno)
+
+    def stmt_For(self, node: nodes.For) -> None:
+        if node.recursive:
+            raise UnsupportedError("recursive loops are not supported", node.lineno)
+        iterable = self.expr(node.iter)  # evaluated in the enclosing scope
+        loop_name = self.fresh("loop")
+        scope: dict[str, str] = {"loop": loop_name}
+        target = self.bind(node.target, scope)
+        self.line(f"{loop_name} = loop_({iterable})", node.lineno)
+        self.line(f"for {target} in {loop_name}:", node.lineno)
+        self.scopes.append(scope)
+        if node.test is not None:
+            self.depth += 1
+            self.line(f"if not {self.expr(node.test)}: continue", node.lineno)
+            self.depth -= 1
+        self.suite(node.body, node.lineno)
+        self.scopes.pop()
+        if node.else_:
+            self.line("else:", node.lineno)
+            self.suite(node.else_, node.lineno)
+
+    def bind(self, target: nodes.Node, scope: dict[str, str]) -> str:
+        """Allocate Python names for an assignment target and register them."""
+        if isinstance(target, nodes.Name):
+            scope[target.name] = py = self.fresh(target.name)
+            return py
+        if isinstance(target, nodes.Tuple):
+            return f"({', '.join(self.bind(item, scope) for item in target.items)},)"
+        raise UnsupportedError(f"{type(target).__name__} target", target.lineno)
+
+    def stmt_Assign(self, node: nodes.Assign) -> None:
+        value = self.expr(node.node)  # before binding, so `set x = x + 1` works
+        target = self.bind(node.target, self.scopes[-1])
+        self.line(f"{target} = {value}", node.lineno)
+
+    def stmt_AssignBlock(self, node: nodes.AssignBlock) -> None:
+        if node.filter is not None:
+            raise UnsupportedError("filtered {% set %} blocks", node.lineno)
+        self.scopes.append({})
+        for child in node.body:
+            self.statement(child)
+        self.scopes.pop()
+        target = self.bind(node.target, self.scopes[-1])
+        self.line(f"{target} = Markup('')", node.lineno)
+
+    def stmt_Macro(self, node: nodes.Macro) -> None:
+        assert self.header is not None
+        annotated = self.header.macros.get(node.name)
+        names = [arg.name for arg in node.args]
+        if annotated is not None and [a.arg for a in annotated.args] != names:
+            raise UnsupportedError(
+                f"macro {node.name}: header parameters "
+                f"{[a.arg for a in annotated.args]} do not match {names}",
+                node.lineno,
+            )
+        first_default = len(node.args) - len(node.defaults)
+        params = []
+        scope: dict[str, str] = {}
+        for index, arg in enumerate(node.args):
+            annotation = "Any"
+            if annotated is not None and annotated.args[index].annotation is not None:
+                annotation = ast.unparse(annotated.args[index].annotation)  # type: ignore[arg-type]
+            scope[arg.name] = py = self.fresh(arg.name)
+            param = f"{py}: {annotation}"
+            if index >= first_default:
+                param += f" = {self.expr(node.defaults[index - first_default])}"
+            params.append(param)
+        py_name = self.fresh(f"macro_{node.name}")
+        self.scopes[-1][node.name] = py_name
+        self.line(f"def {py_name}({', '.join(params)}) -> Markup:", node.lineno)
+        saved, self.scopes = self.scopes, [self.scopes[0], scope]
+        self.suite(node.body, node.lineno)
+        self.scopes = saved
+        self.depth += 1
+        self.line("return Markup('')", node.lineno)
+        self.depth -= 1
+
+    def stmt_Block(self, node: nodes.Block) -> None:
+        py_name = self.fresh(f"block_{node.name}")
+        self.line(f"def {py_name}() -> None:", node.lineno)
+        saved = self.scopes
+        # Blocks only see the template level unless declared `scoped`.
+        self.scopes = [*saved] if node.scoped else [saved[0]]
+        self.suite(node.body, node.lineno)
+        self.scopes = saved
+
+    # -- expressions ----------------------------------------------------
+
+    def expr(self, node: nodes.Node) -> str:
+        handler = getattr(self, f"expr_{type(node).__name__}", None)
+        if handler is not None:
+            return str(handler(node))
+        for node_type, operator in BINARY.items():
+            if type(node) is node_type:
+                assert isinstance(node, nodes.BinExpr)
+                return f"({self.expr(node.left)} {operator} {self.expr(node.right)})"
+        raise UnsupportedError(f"{type(node).__name__} is not supported", node.lineno)
+
+    def expr_Const(self, node: nodes.Const) -> str:
+        return repr(node.value)
+
+    def expr_Name(self, node: nodes.Name) -> str:
+        py = self.lookup(node.name)
+        if py is not None:
+            return py
+        if node.name in GLOBALS:
+            return f"g.{node.name}"
+        if node.name in {"self", "caller", "varargs", "kwargs"}:
+            raise UnsupportedError(f"`{node.name}` is not supported", node.lineno)
+        return f"ctx[{node.name!r}]"
+
+    def expr_Getattr(self, node: nodes.Getattr) -> str:
+        return f"getattr_({self.expr(node.node)}, {node.attr!r})"
+
+    def expr_Getitem(self, node: nodes.Getitem) -> str:
+        obj = self.expr(node.node)
+        if isinstance(node.arg, nodes.Const) and isinstance(node.arg.value, str):
+            return f"getattr_({obj}, {node.arg.value!r})"
+        if isinstance(node.arg, nodes.Slice):
+            parts = [
+                self.expr(p) if p is not None else ""
+                for p in (node.arg.start, node.arg.stop, node.arg.step)
+            ]
+            return f"{obj}[{':'.join(parts)}]"
+        return f"{obj}[{self.expr(node.arg)}]"
+
+    def arguments(self, node: nodes.Call | nodes.Filter | nodes.Test) -> list[str]:
+        args = [self.expr(a) for a in node.args]
+        if node.dyn_args is not None:
+            args.append(f"*{self.expr(node.dyn_args)}")
+        args += [f"{kw.key}={self.expr(kw.value)}" for kw in node.kwargs]
+        if node.dyn_kwargs is not None:
+            args.append(f"**{self.expr(node.dyn_kwargs)}")
+        return args
+
+    def expr_Call(self, node: nodes.Call) -> str:
+        return f"{self.expr(node.node)}({', '.join(self.arguments(node))})"
+
+    def expr_Filter(self, node: nodes.Filter) -> str:
+        if node.node is None:
+            raise UnsupportedError("filter blocks are not supported", node.lineno)
+        args = [self.expr(node.node), *self.arguments(node)]
+        return f"f.{RENAMED.get(node.name, node.name)}({', '.join(args)})"
+
+    def expr_Test(self, node: nodes.Test) -> str:
+        args = [self.expr(node.node), *self.arguments(node)]
+        return f"t.{RENAMED.get(node.name, node.name)}({', '.join(args)})"
+
+    def expr_CondExpr(self, node: nodes.CondExpr) -> str:
+        otherwise = self.expr(node.expr2) if node.expr2 is not None else "undefined_()"
+        return f"({self.expr(node.expr1)} if {self.expr(node.test)} else {otherwise})"
+
+    def expr_Not(self, node: nodes.Not) -> str:
+        return f"(not {self.expr(node.node)})"
+
+    def expr_Neg(self, node: nodes.Neg) -> str:
+        return f"(-{self.expr(node.node)})"
+
+    def expr_Pos(self, node: nodes.Pos) -> str:
+        return f"(+{self.expr(node.node)})"
+
+    def expr_And(self, node: nodes.And) -> str:
+        return f"({self.expr(node.left)} and {self.expr(node.right)})"
+
+    def expr_Or(self, node: nodes.Or) -> str:
+        return f"({self.expr(node.left)} or {self.expr(node.right)})"
+
+    def expr_Compare(self, node: nodes.Compare) -> str:
+        parts = [self.expr(node.expr)]
+        for operand in node.ops:
+            parts += [COMPARE[operand.op], self.expr(operand.expr)]
+        return f"({' '.join(parts)})"
+
+    def expr_Concat(self, node: nodes.Concat) -> str:
+        return f"concat_({', '.join(self.expr(n) for n in node.nodes)})"
+
+    def expr_List(self, node: nodes.List) -> str:
+        return f"[{', '.join(self.expr(n) for n in node.items)}]"
+
+    def expr_Tuple(self, node: nodes.Tuple) -> str:
+        return f"({''.join(self.expr(n) + ', ' for n in node.items)})"
+
+    def expr_Dict(self, node: nodes.Dict) -> str:
+        pairs = (f"{self.expr(p.key)}: {self.expr(p.value)}" for p in node.items)
+        return f"{{{', '.join(pairs)}}}"
+
+
+def translate(
+    source: str, source_name: str, environment: Environment | None = None
+) -> str:
+    """Translate one template, or raise UnsupportedError with its line number."""
+    emitter = Emitter(source, source_name, environment or Environment())
+    return emitter.generate()

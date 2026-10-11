@@ -1,5 +1,5 @@
 .DEFAULT_GOAL := help
-.PHONY: help sync test docs doctest lint format format-check check clean
+.PHONY: help sync test docs doctest lint format format-check check check-templates clean
 
 UV_RUN := uv run
 
@@ -22,6 +22,11 @@ lint: ## Lint with ruff and type-check with mypy
 	$(UV_RUN) ruff check .
 	@# mypy needs the benchmark libraries installed to check their types
 	$(UV_RUN) --group benchmarks mypy
+
+check-templates: ## Type-check annotated Jinja templates (experimental)
+	$(UV_RUN) --group benchmarks python -m tplcheck benchmarks/templates \
+		--shadow-dir build/tplcheck --stub benchmarks/typed_templates.pyi \
+		--config-file experiments/jinja_typecheck/mypy.ini
 
 format: ## Format the code with ruff
 	$(UV_RUN) ruff format .

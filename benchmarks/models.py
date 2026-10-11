@@ -17,3 +17,10 @@ class Item(TypedDict):
     external: bool
     draft: bool
     rating: int
+
+
+class ArticlesContext(TypedDict):
+    """Variables passed to ``templates/articles.jinja2``."""
+
+    items: list[Item]
+    topic_index: list[str]

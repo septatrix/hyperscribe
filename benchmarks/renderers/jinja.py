@@ -5,13 +5,14 @@ from pathlib import Path
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
 from ..models import Item
+from ..typed_templates import get_template
 
 _template_directory = Path(__file__).parents[1] / "templates"
 _environment = Environment(
     loader=FileSystemLoader(_template_directory),
     autoescape=select_autoescape(default=True),
 )
-_template = _environment.get_template("articles.jinja2")
+_template = get_template(_environment, "articles.jinja2")
 
 
 def render(items: list[Item]) -> str:

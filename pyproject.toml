@@ -81,7 +81,7 @@ testpaths = ["tests"]
 
 [tool.ruff]
 src = ["src", "."]
-extend-exclude = ["benchmarks/generated_jinja.py"]
+extend-exclude = ["benchmarks/generated_jinja.py", "benchmarks/typed_templates.pyi"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP"]
