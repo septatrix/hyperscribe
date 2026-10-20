@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sys
 import textwrap
 from pathlib import Path
 
@@ -22,6 +23,11 @@ class Ctx(TypedDict):
     users: list[User]
     title: str
 """
+
+
+@pytest.fixture(autouse=True)
+def fresh_context_module() -> None:
+    sys.modules.pop("ctxmod", None)
 
 
 def run(tmp_path: Path, template: str, monkeypatch: pytest.MonkeyPatch) -> str:
@@ -103,7 +109,95 @@ def test_macro_annotations_check_call_sites(
 
 
 def test_unsupported_feature_is_reported_with_line() -> None:
-    source = "{# tplcheck\n   context: m.C\n#}\n\n{% include 'x.html' %}\n"
+    source = "{# tplcheck\n#}\n\n{% import 'x.html' as x %}\n"
     with pytest.raises(UnsupportedError) as raised:
         translate(source, "t.html")
-    assert raised.value.lineno == 5
+    assert raised.value.lineno == 4
+
+
+def run_many(
+    tmp_path: Path, files: dict[str, str], monkeypatch: pytest.MonkeyPatch
+) -> str:
+    (tmp_path / "ctxmod.py").write_text(
+        textwrap.dedent(CONTEXT)
+        + "\nclass TitleOnly(TypedDict):\n    title: str\n"
+        + "\nclass RowCtx(TypedDict):\n    user: User\n"
+    )
+    templates = tmp_path / "templates"
+    templates.mkdir()
+    for name, body in files.items():
+        (templates / name).write_text(body)
+    monkeypatch.setenv("MYPYPATH", str(tmp_path))
+    return check(
+        templates, tmp_path / "shadow", None, ["--config-file", str(CONFIG)]
+    ).output
+
+
+BASE = (
+    "{# tplcheck\n   context: ctxmod.TitleOnly\n#}\n"
+    "<h1>{{ title }}</h1>{% block b %}{% endblock %}\n"
+)
+
+
+def test_extends_with_compatible_context(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    child = (
+        "{# tplcheck\n   context: ctxmod.Ctx\n#}\n"
+        "{% extends 'base.html' %}{% block b %}{{ users }}{% endblock %}\n"
+    )
+    output = run_many(tmp_path, {"base.html": BASE, "child.html": child}, monkeypatch)
+    assert output.startswith("Success"), output
+
+
+def test_extends_with_missing_parent_variable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    child = "{# tplcheck\n   context: ctxmod.RowCtx\n#}\n{% extends 'base.html' %}\n"
+    output = run_many(tmp_path, {"base.html": BASE, "child.html": child}, monkeypatch)
+    assert "child.html:4: error" in output
+    assert "TitleOnly" in output
+
+
+def test_include_passes_loop_variable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    row = "{# tplcheck\n   context: ctxmod.RowCtx\n#}\n{{ user.name }}\n"
+    page = (
+        "{# tplcheck\n   context: ctxmod.Ctx\n#}\n"
+        "{% for user in users %}{% include 'row.html' %}{% endfor %}\n"
+    )
+    output = run_many(tmp_path, {"row.html": row, "page.html": page}, monkeypatch)
+    assert output.startswith("Success"), output
+
+
+def test_include_with_missing_variable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    row = "{# tplcheck\n   context: ctxmod.RowCtx\n#}\n{{ user.name }}\n"
+    page = "{# tplcheck\n   context: ctxmod.Ctx\n#}\n{% include 'row.html' %}\n"
+    output = run_many(tmp_path, {"row.html": row, "page.html": page}, monkeypatch)
+    assert "page.html:4: error" in output
+    assert 'Missing key "user"' in output
+
+
+def test_include_without_context_gets_nothing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    page = (
+        "{# tplcheck\n   context: ctxmod.Ctx\n#}\n"
+        "{% include 'base.html' without context %}\n"
+    )
+    output = run_many(tmp_path, {"base.html": BASE, "page.html": page}, monkeypatch)
+    assert 'Missing key "title"' in output
+
+
+def test_extends_unannotated_parent_is_reported(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    child = "{# tplcheck\n   context: ctxmod.Ctx\n#}\n{% extends 'plain.html' %}\n"
+    output = run_many(tmp_path, {"plain.html": "x", "child.html": child}, monkeypatch)
+    assert (
+        "child.html:4: error: extends of 'plain.html', which has no tplcheck header"
+        in output
+    )

@@ -23,9 +23,12 @@ from __future__ import annotations
 
 import ast
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 
 from jinja2 import Environment, nodes
+
+from .contexts import context_keys
 
 HEADER = re.compile(r"\A\s*\{#-?\s*tplcheck\b(?P<body>.*?)-?#\}", re.DOTALL)
 
@@ -62,6 +65,14 @@ BINARY = {
     nodes.Mod: "%",
     nodes.Pow: "**",
 }
+
+
+@dataclass(frozen=True)
+class TemplateInfo:
+    """What other templates need to know to extend or include a template."""
+
+    module: str  # name of the shadow module
+    context: str | None
 
 
 class UnsupportedError(Exception):
@@ -105,8 +116,15 @@ def parse_header(source: str) -> Header | None:
 
 
 class Emitter:
-    def __init__(self, source: str, source_name: str, environment: Environment) -> None:
+    def __init__(
+        self,
+        source: str,
+        source_name: str,
+        environment: Environment,
+        templates: Mapping[str, TemplateInfo],
+    ) -> None:
         self.source = source
+        self.templates = templates
         self.source_name = source_name
         self.header = parse_header(source)
         if self.header is None:
@@ -119,6 +137,8 @@ class Emitter:
         # scopes[0] is the template level, which blocks and macros can see.
         self.scopes: list[dict[str, str]] = [{}]
         self.has_extends = False
+        self.imports: list[str] = []
+        self.ctx_keys = context_keys(self.header.context)
 
     # -- output helpers -------------------------------------------------
 
@@ -149,7 +169,7 @@ class Emitter:
 
     def generate(self) -> str:
         assert self.header is not None
-        ctx_type = self.header.context or "dict[str, Any]"
+        ctx_type = self.header.context or "tplcheck.NoContext"
         context_module = ctx_type.rpartition(".")[0]
         head = [
             f"# tplcheck: {self.source_name}",
@@ -163,11 +183,12 @@ class Emitter:
         ]
         if context_module:
             head.append(f"import {context_module}")
-        head += ["", f"def check(ctx: {ctx_type}) -> None:"]
+        head.append("import tplcheck")
         for node in self.tree.body:
             self.statement(node)
         if not self.lines:
             self.line("pass", 1)
+        head += [*self.imports, "", f"def check(ctx: {ctx_type}) -> None:"]
         return "\n".join([*head, *self.lines, ""])
 
     # -- statements -----------------------------------------------------
@@ -180,8 +201,48 @@ class Emitter:
             )
         handler(node)
 
+    def target(self, expr: nodes.Node, what: str) -> TemplateInfo | None:
+        """Resolve the template named by an extends/include to its shadow."""
+        if not (isinstance(expr, nodes.Const) and isinstance(expr.value, str)):
+            raise UnsupportedError(f"dynamic {what} names", expr.lineno)
+        info = self.templates.get(expr.value)
+        if info is None:
+            raise UnsupportedError(
+                f"{what} of {expr.value!r}, which has no tplcheck header", expr.lineno
+            )
+        alias = f"tpl_{info.module}"
+        if (line := f"import {info.module} as {alias}") not in self.imports:
+            self.imports.append(line)
+        return info
+
     def stmt_Extends(self, node: nodes.Extends) -> None:
         self.has_extends = True
+        info = self.target(node.template, "extends")
+        assert info is not None
+        # The child's context must satisfy what the parent declares.
+        self.line(f"tpl_{info.module}.check(ctx)", node.lineno)
+
+    def stmt_Include(self, node: nodes.Include) -> None:
+        try:
+            info = self.target(node.template, "include")
+        except UnsupportedError:
+            if node.ignore_missing and isinstance(node.template, nodes.Const):
+                return
+            raise
+        assert info is not None
+        entries = []
+        if node.with_context:
+            visible: dict[str, str] = {}
+            for scope in self.scopes:
+                visible.update(
+                    {k: v for k, v in scope.items() if not v.startswith("l_macro_")}
+                )
+            for key in sorted(context_keys(info.context)):
+                if key in visible:
+                    entries.append(f"{key!r}: {visible[key]}")
+                elif key in self.ctx_keys:
+                    entries.append(f"{key!r}: ctx[{key!r}]")
+        self.line(f"tpl_{info.module}.check({{{', '.join(entries)}}})", node.lineno)
 
     def stmt_Output(self, node: nodes.Output) -> None:
         if self.depth == 1 and self.has_extends:
@@ -304,7 +365,7 @@ class Emitter:
         py = self.lookup(node.name)
         if py is not None:
             return py
-        if node.name in GLOBALS:
+        if node.name in GLOBALS and node.name not in self.ctx_keys:
             return f"g.{node.name}"
         if node.name in {"self", "caller", "varargs", "kwargs"}:
             raise UnsupportedError(f"`{node.name}` is not supported", node.lineno)
@@ -387,8 +448,17 @@ class Emitter:
 
 
 def translate(
-    source: str, source_name: str, environment: Environment | None = None
+    source: str,
+    source_name: str,
+    environment: Environment | None = None,
+    templates: Mapping[str, TemplateInfo] | None = None,
 ) -> str:
-    """Translate one template, or raise UnsupportedError with its line number."""
-    emitter = Emitter(source, source_name, environment or Environment())
+    """Translate one template, or raise UnsupportedError with its line number.
+
+    ``templates`` maps template names to the annotated templates
+    that this one may extend or include.
+    """
+    emitter = Emitter(
+        source, source_name, environment or Environment(), templates or {}
+    )
     return emitter.generate()

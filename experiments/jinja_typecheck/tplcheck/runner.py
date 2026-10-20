@@ -2,14 +2,17 @@
 
 from __future__ import annotations
 
+import importlib
+import os
 import re
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 
 from jinja2 import Environment
 from mypy import api
 
-from .shadow import UnsupportedError, parse_header, translate
+from .shadow import TemplateInfo, UnsupportedError, parse_header, translate
 
 SUFFIXES = {".jinja2", ".jinja", ".j2", ".html"}
 
@@ -39,27 +42,43 @@ def generate(
     shadow_dir.mkdir(parents=True, exist_ok=True)
     for stale in shadow_dir.glob("*.py"):
         stale.unlink()
-    written: list[Path] = []
-    problems: list[str] = []
-    registry: list[tuple[str, str]] = []
+    # Contexts are TypedDicts defined in the project, so they have to be importable.
+    # Explicit MYPYPATH entries win over whatever is already on sys.path.
+    for entry in reversed(
+        [os.getcwd(), *filter(None, os.environ.get("MYPYPATH", "").split(":"))]
+    ):
+        if entry in sys.path:
+            sys.path.remove(entry)
+        sys.path.insert(0, entry)
+    importlib.invalidate_caches()
+    annotated: dict[str, tuple[Path, str, TemplateInfo]] = {}
     for path in sorted(templates.rglob("*")):
         if path.suffix not in SUFFIXES:
             continue
         name = path.relative_to(templates).as_posix()
         source = path.read_text(encoding="utf-8")
         header = parse_header(source)
-        if header is None:
-            continue
+        if header is not None:
+            info = TemplateInfo(_identifier(name), header.context)
+            annotated[name] = (path, source, info)
+    infos = {name: info for name, (_, _, info) in annotated.items()}
+    written: list[Path] = []
+    problems: list[str] = []
+    registry: list[tuple[str, str]] = []
+    for name, (path, source, info) in annotated.items():
         try:
-            code = translate(source, str(path), environment)
+            code = translate(source, str(path), environment, infos)
         except UnsupportedError as error:
             problems.append(f"{path}:{error.lineno}: error: {error.what} [tplcheck]")
             continue
-        target = shadow_dir / f"{_identifier(name)}.py"
+        except ValueError as error:
+            problems.append(f"{path}:1: error: {error} [tplcheck]")
+            continue
+        target = shadow_dir / f"{info.module}.py"
         target.write_text(code, encoding="utf-8")
         written.append(target)
-        if header.context:
-            registry.append((name, header.context))
+        if info.context:
+            registry.append((name, info.context))
     if stub is not None:
         stub.write_text(_stub(registry), encoding="utf-8")
     return written, problems

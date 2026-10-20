@@ -54,15 +54,26 @@ Everything else is plain, generated Python.
 
 ## Supported
 
-`extends`/`block` (blocks are checked in the template's context),
+`extends`: the child's context must satisfy the parent's declared context
+(TypedDicts are structural, so extra keys are fine),
+and blocks are checked in the child's context.
+`include`: the included template's context is filled from the includer's context
+and from the local variables in scope (loop variables, `set`),
+so a missing or mistyped variable is reported at the `{% include %}` line.
+`without context` passes nothing, `ignore missing` skips unknown templates.
+A template with a bare `{# tplcheck #}` header declares that it uses no variables.
+
 `if`/`elif`/`else`, `for` (incl. `loop`, `else`, inline `if`),
 `set` (also block form), macros with annotated parameters and defaults,
 expressions, ~25 filters, ~15 tests, default globals.
 
-Not yet: `include`, `import`/`from import`, `with`, `call`/`caller`,
+Not yet: `import`/`from import`, `with`, `call`/`caller`,
 `self.block()`/`super()`, recursive loops, `namespace` attribute assignment,
 narrowing via `is defined`,
-and checking that a base template's context is compatible with its children.
+top-level `set` in a child being visible to its parent,
+and dynamic template names (`{% include name %}`).
+Templates that are extended or included must carry a `tplcheck` header too.
+Context TypedDicts are imported while generating, so they must be importable.
 A feature that is not supported is reported with its template line
 rather than silently skipped.
 Filters and tests need typed stand-ins in `tplcheck/filters.py` and `tests.py`;

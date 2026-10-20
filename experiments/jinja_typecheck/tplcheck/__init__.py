@@ -8,12 +8,16 @@ so the bodies are stubs and the signatures are what matters.
 from __future__ import annotations
 
 from collections.abc import Iterable, Iterator
-from typing import Any, Generic, TypeVar
+from typing import Any, Generic, TypedDict, TypeVar
 
 from jinja2 import Undefined
 
 T = TypeVar("T")
 U = TypeVar("U")
+
+
+class NoContext(TypedDict):
+    """Context of a template that declares no variables."""
 
 
 class Loop(Generic[T]):

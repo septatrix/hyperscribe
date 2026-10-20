@@ -24,7 +24,7 @@ lint: ## Lint with ruff and type-check with mypy
 	$(UV_RUN) --group benchmarks mypy
 
 check-templates: ## Type-check annotated Jinja templates (experimental)
-	$(UV_RUN) --group benchmarks python -m tplcheck benchmarks/templates \
+	PYTHONPATH=experiments/jinja_typecheck $(UV_RUN) --group benchmarks python -m tplcheck benchmarks/templates \
 		--shadow-dir build/tplcheck --stub benchmarks/typed_templates.pyi \
 		--config-file experiments/jinja_typecheck/mypy.ini
 
