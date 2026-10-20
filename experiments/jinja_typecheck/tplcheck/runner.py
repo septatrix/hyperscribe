@@ -6,15 +6,22 @@ import importlib
 import os
 import re
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
-from jinja2 import Environment
+from jinja2 import TemplateSyntaxError
 from mypy import api
 
-from .shadow import TemplateInfo, UnsupportedError, parse_header, translate
+from .shadow import (
+    Config,
+    TemplateInfo,
+    UnsupportedError,
+    make_environment,
+    parse_header,
+    translate,
+)
 
-SUFFIXES = {".jinja2", ".jinja", ".j2", ".html"}
+SUFFIXES = {".jinja2", ".jinja", ".j2", ".html", ".tmpl"}
 
 
 @dataclass
@@ -32,13 +39,17 @@ def _class_name(name: str) -> str:
 
 
 def generate(
-    templates: Path, shadow_dir: Path, stub: Path | None
+    templates: Path,
+    shadow_dir: Path,
+    stub: Path | None,
+    config: Config | None = None,
 ) -> tuple[list[Path], list[str]]:
     """Write one shadow module per annotated template (and the stub).
 
     Returns the shadow files and any problems found while translating.
     """
-    environment = Environment()
+    config = config or Config()
+    environment = make_environment(config)
     shadow_dir.mkdir(parents=True, exist_ok=True)
     for stale in shadow_dir.glob("*.py"):
         stale.unlink()
@@ -58,8 +69,9 @@ def generate(
         name = path.relative_to(templates).as_posix()
         source = path.read_text(encoding="utf-8")
         header = parse_header(source)
-        if header is not None:
-            info = TemplateInfo(_identifier(name), header.context)
+        if header is not None or config.lenient:
+            context = header.context if header is not None else None
+            info = TemplateInfo(_identifier(name), context)
             annotated[name] = (path, source, info)
     infos = {name: info for name, (_, _, info) in annotated.items()}
     written: list[Path] = []
@@ -67,9 +79,14 @@ def generate(
     registry: list[tuple[str, str]] = []
     for name, (path, source, info) in annotated.items():
         try:
-            code = translate(source, str(path), environment, infos)
+            code = translate(source, str(path), environment, infos, config)
         except UnsupportedError as error:
             problems.append(f"{path}:{error.lineno}: error: {error.what} [tplcheck]")
+            continue
+        except TemplateSyntaxError as error:
+            problems.append(
+                f"{path}:{error.lineno}: error: {error.message} [tplcheck-syntax]"
+            )
             continue
         except ValueError as error:
             problems.append(f"{path}:1: error: {error} [tplcheck]")
@@ -142,8 +159,10 @@ def check(
     shadow_dir: Path,
     stub: Path | None,
     mypy_args: list[str],
+    config: Config | None = None,
 ) -> Result:
-    files, problems = generate(templates, shadow_dir, stub)
+    config = config or Config()
+    files, problems = generate(templates, shadow_dir, stub, config)
     output = "\n".join(problems)
     status = 1 if problems else 0
     if files:
@@ -151,3 +170,37 @@ def check(
         output += ("\n" if output else "") + remap(stdout + stderr, files)
         status = status or code
     return Result(output.strip(), status)
+
+
+def coverage(templates: Path, config: Config) -> Result:
+    """Translate every template (annotated or not) and report what fails.
+
+    Meant for sizing up an existing project before annotating it:
+    contexts are untyped, but every construct has to be understood
+    and the generated Python has to be valid.
+    """
+    config = replace(config, lenient=True)
+    environment = make_environment(config)
+    sources = {
+        path.relative_to(templates).as_posix(): path
+        for path in sorted(templates.rglob("*"))
+        if path.suffix in SUFFIXES
+    }
+    infos = {name: TemplateInfo(_identifier(name), None) for name in sources}
+    failures: dict[str, list[str]] = {}
+    translated = 0
+    for name, path in sources.items():
+        source = path.read_text(encoding="utf-8")
+        try:
+            code = translate(source, name, environment, infos, config)
+            compile(code, name, "exec")
+            translated += 1
+        except UnsupportedError as error:
+            failures.setdefault(error.what, []).append(f"{name}:{error.lineno}")
+        except Exception as error:  # report, don't stop
+            reason = f"{type(error).__name__}: {error}"
+            failures.setdefault(reason, []).append(name)
+    lines = [f"{translated} of {len(sources)} templates translated"]
+    for reason, where in sorted(failures.items(), key=lambda item: -len(item[1])):
+        lines.append(f"  {len(where):4}  {reason}  (e.g. {where[0]})")
+    return Result("\n".join(lines), 0 if translated == len(sources) else 1)

@@ -7,10 +7,11 @@ so the bodies are stubs and the signatures are what matters.
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Iterator
+from collections.abc import Callable, Iterable, Iterator
 from typing import Any, Generic, TypedDict, TypeVar
 
 from jinja2 import Undefined
+from markupsafe import Markup
 
 T = TypeVar("T")
 U = TypeVar("U")
@@ -64,3 +65,21 @@ def concat_(*parts: object) -> str:
 
 def undefined_() -> Undefined:
     raise NotImplementedError
+
+
+anything_: Any
+"""Stands for a value the checker knows nothing about (lenient mode)."""
+
+
+def super_() -> Markup:
+    """``{{ super() }}`` inside a block: the parent's rendering of it."""
+    raise NotImplementedError
+
+
+class _Self:
+    """``self`` in a template: ``self.some_block()`` renders a block."""
+
+    def __getattr__(self, block: str) -> Callable[[], Markup]: ...
+
+
+self_ = _Self()

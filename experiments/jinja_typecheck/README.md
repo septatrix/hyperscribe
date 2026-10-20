@@ -54,30 +54,56 @@ Everything else is plain, generated Python.
 
 ## Supported
 
-`extends`: the child's context must satisfy the parent's declared context
-(TypedDicts are structural, so extra keys are fine),
-and blocks are checked in the child's context.
-`include`: the included template's context is filled from the includer's context
-and from the local variables in scope (loop variables, `set`),
-so a missing or mistyped variable is reported at the `{% include %}` line.
-`without context` passes nothing, `ignore missing` skips unknown templates.
-A template with a bare `{# tplcheck #}` header declares that it uses no variables.
+The feature list follows what the
+[cdedb2](https://github.com/cde-ev/cdedb2) templates use
+(282 templates, ~1800 `{% trans %}` blocks, 280 `import … with context`,
+227 `{% call %}`, 193 `extends`, 236 `super()`).
+`python -m tplcheck --coverage` translates every template, annotated or not,
+and reports what it cannot handle:
+all 282 cdedb2 templates translate and compile,
+and with typed stand-ins for the project's own filters
+mypy reports one error in them (a project `gettext` that returns a non-`str`).
 
-`if`/`elif`/`else`, `for` (incl. `loop`, `else`, inline `if`),
-`set` (also block form), macros with annotated parameters and defaults,
-expressions, ~25 filters, ~15 tests, default globals.
+- **Control flow:** `if`/`elif`/`else`, `for` (incl. `loop`, `else`, inline `if`,
+  `break`/`continue`), `with`, `do`, `set` (also block form and `ns.attr = …`).
+  A `set` inside an `if` branch is visible in that branch only,
+  unless every branch sets it (then it is `Any` afterwards).
+  Container literals assigned with `set` are `list[Any]`/`dict[Any, Any]`,
+  because templates mutate them (`do x.update(…)`).
+- **Macros** are methods of a generated `Macros` class,
+  so that `{% import "x" as m with context %}` and `{% from "x" import a %}`
+  hand them the importer's context:
+  the importer's context must satisfy the imported template's declared one.
+  Parameters keep their names (callers pass them by keyword),
+  defaults are checked in the template's context,
+  and a macro that uses `caller`, `varargs` or `kwargs` gets matching parameters.
+  `caller` is optional if the macro tests it (`{% if caller %}`), else required.
+  Top-level `set` and `import` are attributes of that class too.
+- **`call` blocks** become a nested function passed as `caller=`;
+  its parameters are `Any`.
+- **`extends`:** the parent's declared context is filled from the child's context
+  and the child's top-level `set` variables, as Jinja does.
+  `super()` is a `Markup`, `self.block()` is a call returning `Markup`.
+- **`include`:** filled from the context and the local variables in scope.
+  `without context` passes nothing, `ignore missing` skips unknown templates.
+- **i18n:** `{% trans %}`, `gettext`, `ngettext`, `_`, … with the extension enabled.
+- **Tests narrow types** (`is none`, `is string`, `is mapping`, …) through `TypeIs`.
+- Filters (~50), tests (~30) and globals have typed stand-ins in `tplcheck/`.
+  A project's own come from modules given with
+  `--filters-module`, `--tests-module` and `--globals-module`;
+  those win over the builtin ones, like `Environment.filters.update()`.
+- Extensions and a custom Environment (delimiters, policies, …) are configured with
+  `--extension` and `--environment-factory module:function`.
+  The factory is how the cdedb2 TeX templates, which use `<<%`, are parsed.
 
-Not yet: `import`/`from import`, `with`, `call`/`caller`,
-`self.block()`/`super()`, recursive loops, `namespace` attribute assignment,
-narrowing via `is defined`,
-top-level `set` in a child being visible to its parent,
-and dynamic template names (`{% include name %}`).
-Templates that are extended or included must carry a `tplcheck` header too.
-Context TypedDicts are imported while generating, so they must be importable.
+Not yet: `filter` blocks, recursive loops, dynamic template names
+(`{% include name %}`, `{% extends name %}`),
+`{% include %}` of a list of templates, namespace attribute types,
+narrowing through `is defined`,
+Templates that are extended, included or imported must carry a `tplcheck` header too.
 A feature that is not supported is reported with its template line
 rather than silently skipped.
-Filters and tests need typed stand-ins in `tplcheck/filters.py` and `tests.py`;
-custom ones have to be added there.
+Context TypedDicts are imported while generating, so they must be importable.
 
 Run the tests with
 `PYTHONPATH=experiments/jinja_typecheck pytest experiments/jinja_typecheck/tests`.
