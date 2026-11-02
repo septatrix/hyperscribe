@@ -40,6 +40,8 @@ print(output.getvalue())
 ## Features
 
 - Templates are plain Python: use loops, functions, and `@contextmanager` layouts.
+- `tokenlist()` builds `class` and other space-separated attributes
+  from fixed and conditional names.
 - Attribute values follow the same rules as content:
   literal strings, `escape`d strings and numbers are written verbatim.
 - `doc(...)` and tag content, as in `t.p(...)`, write trusted `LiteralString`,
