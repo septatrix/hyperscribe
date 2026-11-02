@@ -850,7 +850,8 @@ is called as `async for _ in component(doc): yield`.
 
 When the server hands you a `send` function instead of taking an iterator,
 use an {class}`~hyperscribe.streaming.AsyncDocWriter`
-and call {meth}`~hyperscribe.streaming.AsyncDocWriter.flush` where a chunk should end.
+and call {meth}`~hyperscribe.streaming.AsyncDocWriter.drain` where a chunk should end,
+much like {meth}`asyncio.StreamWriter.drain`.
 Since the template waits for `send`,
 a slow client holds it up instead of letting the buffer grow:
 
@@ -858,9 +859,9 @@ a slow client holds it up instead of letting the buffer grow:
 async def page(doc: AsyncDocWriter) -> None:
     with layout(doc, "Articles"):
         doc.tags.h1("Latest")
-        await doc.flush()
+        await doc.drain()
         item_list(doc, await fetch_articles())
-    await doc.flush()
+    await doc.drain()
 
 
 async def send(chunk: str) -> None:
@@ -930,19 +931,19 @@ asyncio.run(show(stream(page)))
     <div id="hyperscribe-slot-2"></div>
     <footer>Thanks for reading</footer>
 [chunk]
-    <template id="hyperscribe-slot-2-content">
+    <template>
       <ul>
         <li>python</li>
       </ul>
     </template>
-    <script>{let t=document.getElementById("hyperscribe-slot-2-content");document.getElementById("hyperscribe-slot-2").replaceWith(t.content);t.remove();document.currentScript.remove()}</script>
+    <script>{let script = document.currentScript;let template = script.previousElementSibling;document.getElementById("hyperscribe-slot-2").replaceWith(template.content);template.remove();script.remove();}</script>
 [chunk]
-    <template id="hyperscribe-slot-1-content">
+    <template>
       <ul>
         <li>Async &amp; you</li>
       </ul>
     </template>
-    <script>{let t=document.getElementById("hyperscribe-slot-1-content");document.getElementById("hyperscribe-slot-1").replaceWith(t.content);t.remove();document.currentScript.remove()}</script>
+    <script>{let script = document.currentScript;let template = script.previousElementSibling;document.getElementById("hyperscribe-slot-1").replaceWith(template.content);template.remove();script.remove();}</script>
 [chunk]
   </body>
 </html>
@@ -951,9 +952,33 @@ asyncio.run(show(stream(page)))
 The tags were faster, so they were sent first.
 `resolve` yields after each part,
 so the template can send it on in whichever way it is streamed:
-with a `yield` as above, with `await doc.flush()` for an {class}`~hyperscribe.streaming.AsyncDocWriter`,
+with a `yield` as above, with `await doc.drain()` for an {class}`~hyperscribe.streaming.AsyncDocWriter`,
 or with nothing at all in an `async def` template,
 where waiting for the next part already sends the previous one.
 Out-of-order streaming starts asyncio tasks, so unlike the rest of the module it needs asyncio.
+
+The placeholder is a `<div>` that is replaced as a whole.
+Pass `tag` and attributes for a different element,
+and `keep=True` to keep the element and replace only its content,
+so that it becomes the parent of what is rendered:
+
+```python
+def list_items(doc: DocWriter, items: list[str]) -> None:
+    for item in items:
+        doc.tags.li(escape(item))
+
+
+slots.defer(
+    fetch_articles(),
+    list_items,
+    trust("<li>Loading…</li>"),
+    tag="ul",
+    keep=True,
+    id="articles",
+)
+```
+
+Placeholders are numbered after a prefix unless they are given an `id`,
+which is then up to you to keep unique within the page.
 On pages with a content security policy,
 pass the policy's `nonce` to {class}`~hyperscribe.streaming.OutOfOrder`.

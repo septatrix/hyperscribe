@@ -27,7 +27,10 @@ else:
     from typing_extensions import LiteralString
 
 if sys.version_info >= (3, 14):
+    from io import Writer
     from string.templatelib import Interpolation, Template, convert
+else:
+    from typing_extensions import Writer
 
 
 @runtime_checkable
@@ -35,12 +38,6 @@ class SupportsHTML(Protocol):
     """An object whose ``__html__`` method returns trusted HTML."""
 
     def __html__(self) -> str: ...
-
-
-class SupportsWrite(Protocol):
-    """Anything :class:`DocWriter` can write to, such as a text file or ``StringIO``."""
-
-    def write(self, text: str, /) -> object: ...
 
 
 SafeStr = NewType("SafeStr", str)
@@ -390,7 +387,7 @@ class _Voids:
 class DocWriter:
     """Write escaped HTML fragments to any object with a ``write(str)`` method."""
 
-    def __init__(self, writer: SupportsWrite) -> None:
+    def __init__(self, writer: Writer[str]) -> None:
         self._write = writer.write
         # An empty chain whose children are the top-level tags.
         self.tags: _TagBuilder = _TagBuilder(self, (), (), {})

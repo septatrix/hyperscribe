@@ -7,9 +7,6 @@
    :members: tags, voids, parts, comment, inline, text, write_raw, tag, void_tag
    :special-members: __call__
 
-.. autoclass:: hyperscribe.SupportsWrite
-   :members: write
-
 .. autofunction:: hyperscribe.escape
 
 .. autofunction:: hyperscribe.escape_silent
@@ -36,7 +33,7 @@
    :members: take
 
 .. autoclass:: hyperscribe.streaming.AsyncDocWriter
-   :members: flush
+   :members: drain
 
 .. autofunction:: hyperscribe.streaming.stream
 

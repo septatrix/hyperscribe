@@ -52,7 +52,7 @@ print(output.getvalue())
   `hyperscribe.streaming` sends the page in chunks wherever the template waits,
   and can stream slow parts out of order.
 - Fully typed, and supports Python 3.10 and newer.
-- No dependencies apart from `typing_extensions` for Python 3.10–3.12.
+- No dependencies apart from `typing_extensions` for Python 3.10–3.13.
 
 ## Installation
 

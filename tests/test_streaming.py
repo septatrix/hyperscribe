@@ -5,7 +5,7 @@ from typing import TypeVar
 
 import pytest
 
-from hyperscribe import DocWriter, escape
+from hyperscribe import DocWriter, escape, trust
 from hyperscribe.streaming import AsyncDocWriter, BufferedDocWriter, OutOfOrder, stream
 
 T = TypeVar("T")
@@ -43,7 +43,7 @@ def test_take_returns_what_was_written_since_the_last_take() -> None:
     assert doc.take() == "</div>\n"
 
 
-def test_flush_sends_the_buffer_and_skips_empty_chunks() -> None:
+def test_drain_sends_the_buffer_and_skips_empty_chunks() -> None:
     sent: list[str] = []
 
     async def send(chunk: str) -> None:
@@ -51,12 +51,12 @@ def test_flush_sends_the_buffer_and_skips_empty_chunks() -> None:
 
     async def main() -> None:
         doc = AsyncDocWriter(send)
-        await doc.flush()
+        await doc.drain()
         with doc.tags.ul:
             doc.tags.li("a")
-            await doc.flush()
+            await doc.drain()
             doc.tags.li("b")
-        await doc.flush()
+        await doc.drain()
 
     run(main)
     assert sent == ["<ul>\n  <li>a</li>\n", "  <li>b</li>\n</ul>\n"]
@@ -215,11 +215,12 @@ def articles(doc: DocWriter, titles: list[str]) -> None:
             doc.tags.li(escape(title))
 
 
-def swap(slot_id: str) -> str:
+def swap(target: str, method: str = "replaceWith") -> str:
     return (
-        f'{{let t=document.getElementById("{slot_id}-content");'
-        f'document.getElementById("{slot_id}").replaceWith(t.content);'
-        "t.remove();document.currentScript.remove()}"
+        "{let script = document.currentScript;"
+        "let template = script.previousElementSibling;"
+        f"document.getElementById({target}).{method}(template.content);"
+        "template.remove();script.remove();}"
     )
 
 
@@ -241,18 +242,18 @@ def test_out_of_order_parts_are_written_as_they_arrive() -> None:
         '  <div id="hyperscribe-slot-1">Loading…</div>\n'
         '  <section id="hyperscribe-slot-2"></section>\n'
         "  <footer>end</footer>\n",
-        '  <template id="hyperscribe-slot-2-content">\n'
+        "  <template>\n"
         "    <ul>\n"
         "      <li>fast</li>\n"
         "    </ul>\n"
         "  </template>\n"
-        f'  <script nonce="n&lt;1">{swap("hyperscribe-slot-2")}</script>\n',
-        '  <template id="hyperscribe-slot-1-content">\n'
+        '  <script nonce="n&lt;1">' + swap('"hyperscribe-slot-2"') + "</script>\n",
+        "  <template>\n"
         "    <ul>\n"
         "      <li>slow</li>\n"
         "    </ul>\n"
         "  </template>\n"
-        f'  <script nonce="n&lt;1">{swap("hyperscribe-slot-1")}</script>\n',
+        '  <script nonce="n&lt;1">' + swap('"hyperscribe-slot-1"') + "</script>\n",
         "</body>\n",
     ]
 
@@ -266,10 +267,11 @@ def test_out_of_order_flushes_implicitly_in_async_functions() -> None:
 
     chunks = run(lambda: collect(stream(page)))
     assert chunks[0] == '<div id="s-1"></div>\n'
-    assert chunks[1].startswith('<template id="s-1-content">')
+    assert chunks[1].startswith("<template>")
+    assert 'getElementById("s-1")' in chunks[1]
 
 
-def test_out_of_order_with_explicit_flushes() -> None:
+def test_out_of_order_with_explicit_drains() -> None:
     sent: list[str] = []
 
     async def send(chunk: str) -> None:
@@ -279,9 +281,9 @@ def test_out_of_order_with_explicit_flushes() -> None:
         doc = AsyncDocWriter(send)
         slots = OutOfOrder(doc)
         slots.defer(later(["a"]), articles)
-        await doc.flush()
+        await doc.drain()
         async for _ in slots.resolve():
-            await doc.flush()
+            await doc.drain()
 
     run(main)
     assert sent[0] == '<div id="hyperscribe-slot-1"></div>\n'
@@ -318,7 +320,59 @@ def test_out_of_order_cancels_the_rest_when_a_part_fails() -> None:
     assert cancelled == [True]
 
 
-@pytest.mark.parametrize("prefix", ["", "1a", 'a"b', "a b", "a</script>"])
-def test_out_of_order_rejects_prefixes_that_need_escaping(prefix: str) -> None:
-    with pytest.raises(ValueError, match="plain identifier"):
-        OutOfOrder(BufferedDocWriter(), prefix=prefix)
+def test_out_of_order_can_keep_the_placeholder_element() -> None:
+    def items(doc: DocWriter, titles: list[str]) -> None:
+        for title in titles:
+            doc.tags.li(escape(title))
+
+    async def main() -> str:
+        doc = BufferedDocWriter()
+        slots = OutOfOrder(doc)
+        slots.defer(
+            ready(["a"]),
+            items,
+            trust("<li>…</li>"),
+            tag="ul",
+            keep=True,
+            id="articles",
+            class_="list",
+        )
+        async for _ in slots.resolve():
+            pass
+        return doc.take()
+
+    assert run(main) == (
+        '<ul id="articles" class="list"><li>…</li></ul>\n'
+        "<template>\n"
+        "  <li>a</li>\n"
+        "</template>\n"
+        + "<script>"
+        + swap('"articles"', "replaceChildren")
+        + "</script>\n"
+    )
+
+
+@pytest.mark.parametrize(
+    ("given", "attribute", "literal"),
+    [
+        ("plain", "plain", '"plain"'),
+        ('a"b', "a&quot;b", '"a\\"b"'),
+        ("a</script><!--", "a&lt;/script&gt;&lt;!--", '"a\\u003c/script>\\u003c!--"'),
+        ("zürich\u2028", "zürich\u2028", '"z\\u00fcrich\\u2028"'),
+    ],
+)
+def test_out_of_order_ids_are_encoded_for_attributes_and_scripts(
+    given: str, attribute: str, literal: str
+) -> None:
+    async def main() -> str:
+        doc = BufferedDocWriter()
+        slots = OutOfOrder(doc)
+        slots.defer(ready([]), articles, id=given)
+        async for _ in slots.resolve():
+            pass
+        return doc.take()
+
+    output = run(main)
+    assert output.startswith(f'<div id="{attribute}"></div>\n')
+    assert f"getElementById({literal})" in output
+    assert output.count("</script>") == 1

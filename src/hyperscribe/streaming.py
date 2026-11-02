@@ -6,7 +6,7 @@ and the document is sent on in chunks at the few places where it is worth it,
 usually right before the template waits for something slow:
 
 - :class:`AsyncDocWriter` sends the buffer when the template calls
-  ``await doc.flush()``.
+  ``await doc.drain()``.
 - :func:`stream` turns a template into an async iterator of chunks,
   which most async web frameworks accept as a streaming response body.
   A template written as an async generator is flushed at each bare ``yield``,
@@ -23,7 +23,8 @@ from __future__ import annotations
 
 import asyncio
 import inspect
-import re
+import json
+import string
 import types
 from collections.abc import (
     AsyncGenerator,
@@ -33,9 +34,9 @@ from collections.abc import (
     Coroutine,
     Generator,
 )
-from typing import Any, Concatenate, ParamSpec, TypeVar, overload
+from typing import TYPE_CHECKING, Any, Concatenate, ParamSpec, TypeVar, overload
 
-from . import DocWriter, TrustedContent, escape, trust
+from . import AttributeValue, DocWriter, TrustedContent, escape, trust
 
 __all__ = ["AsyncDocWriter", "BufferedDocWriter", "OutOfOrder", "stream"]
 
@@ -50,7 +51,12 @@ class _Parts(list[str]):
     so writing costs no Python-level call on top of the append.
     """
 
-    write = list.append
+    if TYPE_CHECKING:
+        # What io.Writer asks for; list.append returns None instead,
+        # which DocWriter never looks at.
+        def write(self, data: str, /) -> int: ...
+    else:
+        write = list.append
 
 
 class BufferedDocWriter(DocWriter):
@@ -74,23 +80,25 @@ class BufferedDocWriter(DocWriter):
 
 
 class AsyncDocWriter(BufferedDocWriter):
-    """A buffered writer that sends its buffer when ``await doc.flush()`` is called.
+    """A buffered writer that sends its buffer when ``await doc.drain()`` is called.
 
+    Like :meth:`asyncio.StreamWriter.drain`,
+    :meth:`drain` waits until the data written so far has been passed on:
     ``send`` is awaited with each chunk,
     so a slow client holds the template up instead of letting the buffer grow.
     It can be a wrapper around an ASGI ``send`` callable,
     or around :meth:`asyncio.StreamWriter.write` and
     :meth:`~asyncio.StreamWriter.drain`.
-    Call :meth:`flush` once more when the template is done,
-    to send whatever it wrote after the last flush.
+    Call :meth:`drain` once more when the template is done,
+    to send whatever it wrote after the last time.
     """
 
     def __init__(self, send: Callable[[str], Awaitable[object]]) -> None:
         super().__init__()
         self._send = send
 
-    async def flush(self) -> None:
-        """Send what has been written since the last flush, if anything."""
+    async def drain(self) -> None:
+        """Send what has been written since the last drain, if anything."""
         if chunk := self.take():
             await self._send(chunk)
 
@@ -203,13 +211,28 @@ def stream(
     )
 
 
-_ID_PREFIX = re.compile(r"[A-Za-z][A-Za-z0-9_-]*")
+# The script runs as the parser reaches it, right after its <template>,
+# and moves the template's content into the target.
+# It is written on one line, so the indentation here is stripped.
+_SWAP_SCRIPT = """
+    {
+      let script = document.currentScript;
+      let template = script.previousElementSibling;
+      document.getElementById($target).$method(template.content);
+      template.remove();
+      script.remove();
+    }
+"""
+_SWAP = string.Template("".join(line.strip() for line in _SWAP_SCRIPT.splitlines()))
 
-_SWAP_SCRIPT = (
-    '{let t=document.getElementById("{id}-content");'
-    'document.getElementById("{id}").replaceWith(t.content);'
-    "t.remove();document.currentScript.remove()}"
-)
+
+def _script_string(value: str) -> str:
+    """Return ``value`` as a JavaScript string literal that is safe in ``<script>``.
+
+    JSON escapes quotes, backslashes and line terminators,
+    and escaping ``<`` as well rules out ``</script>`` and ``<!--``.
+    """
+    return json.dumps(value).replace("<", "\\u003c")
 
 
 class OutOfOrder:
@@ -239,16 +262,12 @@ class OutOfOrder:
     ) -> None:
         """Write the placeholders and parts of ``doc``.
 
-        Placeholders get the IDs ``prefix-1``, ``prefix-2`` and so on,
+        Placeholders without an ``id`` of their own
+        get the IDs ``prefix-1``, ``prefix-2`` and so on,
         so ``prefix`` has to be unique within the page.
-        It is written into scripts as well as attributes,
-        so it is limited to ASCII letters, digits, ``-`` and ``_``,
-        starting with a letter.
         ``nonce`` is added to each script,
         for pages with a content security policy that requires one.
         """
-        if not _ID_PREFIX.fullmatch(prefix):
-            raise ValueError(f"prefix must be a plain identifier: {prefix!r}")
         self._doc = doc
         self._prefix = prefix
         self._nonce = None if nonce is None else escape(nonce)
@@ -265,19 +284,36 @@ class OutOfOrder:
         placeholder: TrustedContent = "",
         *,
         tag: str = "div",
+        id: str | None = None,
+        keep: bool = False,
+        **attrs: AttributeValue,
     ) -> None:
         """Write a placeholder now, and ``render(doc, await awaitable)`` later.
 
-        The placeholder is a ``tag`` element holding ``placeholder``,
-        such as a loading message,
-        and is replaced as a whole by what ``render`` writes.
+        The placeholder is a ``tag`` element with the given attributes,
+        holding ``placeholder``, such as a loading message.
+        By default it is replaced as a whole by what ``render`` writes.
+        With ``keep``, the element stays and only its content is replaced,
+        so ``render`` writes the element's new children,
+        as in ``slots.defer(fetch(), items, tag="ul", keep=True, class_="list")``.
+
+        The element gets ``id`` as its ID if given,
+        which is then up to the caller to keep unique,
+        and an ID made from the prefix otherwise.
         ``awaitable`` starts running right away,
         so several deferred parts load concurrently.
         """
-        self._count += 1
-        slot_id = f"{self._prefix}-{self._count}"
-        self._doc.tags[tag](placeholder, id=trust(slot_id))
-        self._pending[asyncio.ensure_future(awaitable)] = (slot_id, render)
+        if id is None:
+            self._count += 1
+            target = f"{self._prefix}-{self._count}"
+        else:
+            target = id
+        self._doc.tags[tag](placeholder, id=escape(target), **attrs)
+        script = _SWAP.substitute(
+            target=_script_string(target),
+            method="replaceChildren" if keep else "replaceWith",
+        )
+        self._pending[asyncio.ensure_future(awaitable)] = (script, render)
 
     async def resolve(self) -> AsyncIterator[None]:
         """Render the deferred parts in the order their data arrives.
@@ -288,10 +324,10 @@ class OutOfOrder:
         - In an async generator template rendered by :func:`stream`,
           write ``async for _ in slots.resolve(): yield``.
         - With :class:`AsyncDocWriter`,
-          write ``async for _ in slots.resolve(): await doc.flush()``.
+          write ``async for _ in slots.resolve(): await doc.drain()``.
         - In an ``async def`` template rendered by :func:`stream`,
           ``async for _ in slots.resolve(): pass`` is enough,
-          because waiting for the next part flushes the previous one.
+          because waiting for the next part sends the previous one.
 
         Call it where the parts should be written, usually right before ``</body>``.
         If rendering a part fails, the parts still loading are cancelled.
@@ -306,12 +342,12 @@ class OutOfOrder:
                     pending.keys(), return_when=asyncio.FIRST_COMPLETED
                 )
                 for task in done:
-                    slot_id, render = pending.pop(task)
+                    script, render = pending.pop(task)
                     value = task.result()
-                    # The ID was checked to be plain, so it is safe in the script.
-                    with t.template(id=trust(f"{slot_id}-content")):
+                    with t.template:
                         render(doc, value)
-                    t.script(trust(_SWAP_SCRIPT.replace("{id}", slot_id)), nonce=nonce)
+                    # The target ID is encoded by _script_string.
+                    t.script(trust(script), nonce=nonce)
                     yield
         finally:
             for task in pending:
