@@ -13,6 +13,9 @@
 
 .. autofunction:: hyperscribe.trust
 
+.. autodata:: hyperscribe.Ignored
+   :annotation:
+
 .. autodata:: hyperscribe.SafeStr
    :annotation:
 

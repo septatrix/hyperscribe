@@ -328,8 +328,33 @@ def test_writes_to_any_object_with_write() -> None:
             chunks.append(value)
             return len(value)
 
-    DocWriter(Sink()).tags.p("x")  # type: ignore[arg-type]
+    DocWriter(Sink()).tags.p("x")
     assert "".join(chunks) == "<p>x</p>\n"
+
+
+def test_writes_to_a_function() -> None:
+    chunks: list[str] = []
+    DocWriter(chunks.append).tags.p("x")
+    assert chunks == ["<p>x</p>\n"]
+
+
+def test_prefers_write_over_calling_the_writer() -> None:
+    chunks: list[str] = []
+
+    class Both:
+        def __call__(self, value: str) -> None:
+            raise AssertionError("called instead of write")
+
+        def write(self, value: str) -> None:
+            chunks.append(value)
+
+    DocWriter(Both()).tags.p("x")
+    assert chunks == ["<p>x</p>\n"]
+
+
+def test_rejects_writers_that_cannot_write() -> None:
+    with pytest.raises(TypeError, match="write\\(str\\) method or be callable"):
+        DocWriter(42)  # type: ignore[arg-type]
 
 
 def test_none_attribute_is_omitted() -> None:

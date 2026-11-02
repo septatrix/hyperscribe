@@ -5,6 +5,8 @@
 Everything starts with a {class}`~hyperscribe.DocWriter`,
 which wraps any object with a `write(str)` method:
 a {class}`io.StringIO`, an open file, or a socket wrapper.
+It also takes a function that is called with each piece of text,
+such as `parts.append` to collect the pieces in a list.
 
 ```python
 from io import StringIO

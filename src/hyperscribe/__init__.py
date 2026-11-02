@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import html
 import sys
+from collections.abc import Callable
 from contextlib import AbstractContextManager
 from dataclasses import dataclass, field
 from types import TracebackType
@@ -11,7 +12,6 @@ from typing import (
     Any,
     NewType,
     Protocol,
-    TextIO,
     TypeAlias,
     overload,
     runtime_checkable,
@@ -28,7 +28,10 @@ else:
     from typing_extensions import LiteralString
 
 if sys.version_info >= (3, 14):
+    from io import Writer
     from string.templatelib import Interpolation, Template, convert
+else:
+    from typing_extensions import Writer
 
 
 @runtime_checkable
@@ -37,6 +40,15 @@ class SupportsHTML(Protocol):
 
     def __html__(self) -> str: ...
 
+
+Ignored: TypeAlias = object
+"""The return type of callbacks whose result hyperscribe does not look at.
+
+It is :class:`object`, so functions returning anything at all are accepted,
+such as ``list.append``, which returns ``None``,
+and a text stream's ``write``, which returns the number of characters written.
+Unlike :data:`~typing.Any`, it does not switch off type checking of the result.
+"""
 
 SafeStr = NewType("SafeStr", str)
 """A string that is safe to write as HTML, returned by :func:`escape` and :func:`trust`.
@@ -383,10 +395,26 @@ class _Voids:
 
 
 class DocWriter:
-    """Write escaped HTML fragments to any object with a ``write(str)`` method."""
+    """Write escaped HTML fragments to a text stream or a function.
 
-    def __init__(self, writer: TextIO) -> None:
-        self._write = writer.write
+    ``writer`` is anything with a ``write(str)`` method,
+    such as an open file or a :class:`io.StringIO`,
+    or a function that is called with each piece of text instead,
+    such as the ``append`` method of a list.
+    Only the ``write`` method is kept,
+    so a writer that has one is never called itself.
+    """
+
+    def __init__(self, writer: Writer[str] | Callable[[str], Ignored]) -> None:
+        write = getattr(writer, "write", None)
+        if write is None:
+            if not callable(writer):
+                raise TypeError(
+                    "writer must have a write(str) method or be callable, "
+                    f"not {type(writer).__name__}"
+                )
+            write = writer
+        self._write: Callable[[str], Ignored] = write
         # An empty chain whose children are the top-level tags.
         self.tags: _TagBuilder = _TagBuilder(self, (), (), {})
         """Tags by name, as in ``doc.tags.div``, or ``doc.tags["my-element"]``."""
