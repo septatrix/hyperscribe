@@ -48,6 +48,8 @@ print(output.getvalue())
 - On Python 3.14 and newer, template strings (`t"..."`) are accepted too:
   literal parts are trusted and interpolated values are escaped.
 - Output is streamed to anything with a `write(str)` method, or to a function.
+- Async templates write synchronously too:
+  `hyperscribe.streaming` sends the page in chunks where the template chooses.
 - Fully typed, and supports Python 3.10 and newer.
 - No dependencies apart from `typing_extensions` for Python 3.10–3.13.
 

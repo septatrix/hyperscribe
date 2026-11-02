@@ -26,6 +26,20 @@
    :annotation:
 ```
 
+## Streaming
+
+```{eval-rst}
+.. automodule:: hyperscribe.streaming
+   :no-members:
+
+.. autoclass:: hyperscribe.streaming.AsyncDocWriter
+   :members: drain
+
+.. autofunction:: hyperscribe.streaming.aiter_chunks
+
+.. autofunction:: hyperscribe.streaming.iter_chunks
+```
+
 ## Tag objects
 
 {attr}`~hyperscribe.DocWriter.tags` is a tag builder,
