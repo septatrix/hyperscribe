@@ -7,22 +7,31 @@
    :members: tags, voids, parts, comment, inline
    :special-members: __call__
 
-.. autofunction:: hyperscribe.escape
-
-.. autofunction:: hyperscribe.escape_silent
-
-.. autofunction:: hyperscribe.trust
-
 .. autodata:: hyperscribe.Ignored
-   :annotation:
-
-.. autodata:: hyperscribe.SafeStr
    :annotation:
 
 .. autodata:: hyperscribe.TrustedContent
    :annotation:
 
 .. autodata:: hyperscribe.AttributeValue
+   :annotation:
+```
+
+## Markup
+
+```{eval-rst}
+.. automodule:: hyperscribe.markup
+   :no-members:
+
+.. autofunction:: hyperscribe.markup.escape
+
+.. autofunction:: hyperscribe.markup.escape_silent
+
+.. autofunction:: hyperscribe.markup.trust
+
+.. autofunction:: hyperscribe.markup.classes
+
+.. autodata:: hyperscribe.markup.SafeStr
    :annotation:
 ```
 

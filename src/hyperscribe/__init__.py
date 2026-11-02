@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import html
 import sys
 from collections.abc import Callable
 from contextlib import AbstractContextManager
@@ -10,12 +9,17 @@ from dataclasses import dataclass, field
 from types import TracebackType
 from typing import (
     Any,
-    NewType,
     Protocol,
     TypeAlias,
     overload,
     runtime_checkable,
 )
+
+from .markup import SafeStr as SafeStr
+from .markup import classes as classes
+from .markup import escape as escape
+from .markup import escape_silent as escape_silent
+from .markup import trust as trust
 
 if sys.version_info >= (3, 11):
     from typing import LiteralString
@@ -45,13 +49,6 @@ and a text stream's ``write``, which returns the number of characters written.
 Unlike :data:`~typing.Any`, it does not switch off type checking of the result.
 """
 
-SafeStr = NewType("SafeStr", str)
-"""A string that is safe to write as HTML, returned by :func:`escape` and :func:`trust`.
-
-It only exists for type checkers; at runtime it is a plain :class:`str`.
-Attribute values are escaped as usual, whatever their type.
-"""
-
 if sys.version_info >= (3, 14):
     TrustedContent: TypeAlias = (
         LiteralString | SafeStr | SupportsHTML | int | float | Template
@@ -61,7 +58,7 @@ else:
 """Content that is written verbatim, by :class:`DocWriter` and by tags alike.
 
 Strings built from anything else, such as user input,
-have to go through :func:`escape` first.
+have to go through :func:`~hyperscribe.markup.escape` first.
 On Python 3.14 and newer, a template string (``t"..."``) is accepted as well:
 its literal parts are trusted and its interpolated values are escaped
 unless they are numbers, objects with ``__html__`` or other template strings.
@@ -93,7 +90,8 @@ else:
 """What an attribute may be set to.
 
 Strings are written verbatim between double quotes, like tag content,
-so a string that is not a literal has to go through :func:`escape` first.
+so a string that is not a literal
+has to go through :func:`~hyperscribe.markup.escape` first.
 Numbers and objects with ``__html__`` are written as they are,
 and a template string is handled like tag content:
 its literal parts are trusted and its interpolated values are escaped.
@@ -101,47 +99,13 @@ its literal parts are trusted and its interpolated values are escaped.
 ``True`` writes it without a value (``<script defer>``),
 and a dictionary is flattened into one attribute per entry
 with the name as a prefix (``data={"id": 7}`` gives ``data-id="7"``).
+``class`` and ``style`` are no prefixes, so a dictionary raises :exc:`TypeError` there;
+:func:`~hyperscribe.markup.classes` builds a ``class`` from conditions instead.
 Inside ``aria``, booleans are written as ``"true"`` and ``"false"`` instead,
 because ARIA attributes take strings rather than being HTML boolean attributes.
 """
 
 _MISSING: object = object()
-
-
-def escape(value: str) -> SafeStr:
-    """Escape ``&``, ``<``, ``>`` and quotes so the text can be written as HTML.
-
-    Quotes are escaped as well,
-    so the result is safe in text and in attribute values.
-    """
-    # Looking for characters to escape is much cheaper than escaping,
-    # and most strings have none.
-    if (
-        "&" not in value
-        and "<" not in value
-        and ">" not in value
-        and '"' not in value
-        and "'" not in value
-    ):
-        return SafeStr(value)
-    return SafeStr(html.escape(value))
-
-
-def escape_silent(value: str | None) -> SafeStr:
-    """Like :func:`escape`, but write ``None`` as an empty string.
-
-    Use it for optional values, such as a field that may be missing in some data,
-    where an empty result is what the page should show.
-    """
-    return SafeStr("") if value is None else escape(value)
-
-
-def trust(value: str) -> SafeStr:
-    """Mark a string as safe to write as HTML, without escaping it.
-
-    Only use it for content that cannot contain untrusted input.
-    """
-    return SafeStr(value)
 
 
 if sys.version_info >= (3, 14):
@@ -196,6 +160,13 @@ def _trusted_text(value: TrustedContent) -> str:
     return str(value)
 
 
+# Attributes that are no prefix, which a dictionary would be mistaken for.
+_NOT_PREFIXES = {
+    "class": "use hyperscribe.classes() for conditional classes",
+    "style": "write the declarations as a string, as in 'color: red; margin: 0'",
+}
+
+
 def _format_attributes(attrs: dict[str, AttributeValue], prefix: str = "") -> str:
     """Write attributes in the order given, with trusted values as they are.
 
@@ -217,6 +188,8 @@ def _format_attributes(attrs: dict[str, AttributeValue], prefix: str = "") -> st
         elif type(value) is str:
             parts.append(f' {name}="{value}"')
         elif isinstance(value, dict):
+            if not prefix and name in _NOT_PREFIXES:
+                raise TypeError(f"{name} cannot be a dictionary; {_NOT_PREFIXES[name]}")
             parts.append(_format_attributes(value, name))
         else:
             parts.append(f' {name}="{_trusted_text(value)}"')
@@ -301,7 +274,7 @@ class _TagBuilder:
         after any it was given by an earlier call.
         The content is handled like that of :meth:`DocWriter.__call__`:
         it is written verbatim, so a string that is not a literal
-        has to go through :func:`escape` first.
+        has to go through :func:`~hyperscribe.markup.escape` first.
         ``None`` is rejected with a :class:`TypeError`
         instead of being mistaken for missing content.
         """
@@ -435,7 +408,8 @@ class DocWriter:
     def __call__(self, value: TrustedContent) -> None:
         """Write trusted content verbatim, preserving the current indentation.
 
-        Strings with non-literal provenance must be passed to :func:`escape`.
+        Strings with non-literal provenance
+        must be passed to :func:`~hyperscribe.markup.escape`.
         Objects implementing ``__html__`` contribute their trusted HTML string;
         literal strings and primitive numeric values are also written verbatim.
         Tag content, as in ``doc.tags.p(...)``, is handled the same way.
