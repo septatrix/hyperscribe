@@ -786,7 +786,7 @@ The template is sent on at each bare `yield`, and nowhere else,
 so you choose where the chunks end,
 usually right before waiting for something slow.
 A `yield` only reaches the generator that contains it,
-because async generators have no `yield from`,
+and before Python 3.16 async generators have no `yield from`,
 so a component that yields is passed on with `async for _ in component(doc): yield`:
 
 ```{testcode} streaming
@@ -835,6 +835,51 @@ up to the component's `yield` before it waited for the tags,
 and the rest once the template returned.
 Arguments after the template are passed on to it,
 as in `aiter_chunks(page, user, page=2)`.
+
+On Python 3.16 and newer, async generators support `yield from` ({pep}`828`),
+so a component is passed on as in a synchronous generator,
+with the same result:
+
+```{testcode} streaming
+:skipif: sys.version_info < (3, 16)
+
+async def page(doc: DocWriter) -> AsyncIterator[None]:
+    with layout(doc, "Articles"):
+        doc.tags.h1("Latest")
+        yield
+        item_list(doc, await fetch_articles())
+        yield from tag_box(doc)
+
+
+asyncio.run(show(aiter_chunks(page)))
+```
+
+```{testoutput} streaming
+:skipif: sys.version_info < (3, 16)
+
+[chunk]
+<html lang="en">
+  <head><title>Articles</title></head>
+  <body>
+    <h1>Latest</h1>
+[chunk]
+    <ul>
+      <li>Async &amp; you</li>
+    </ul>
+[chunk]
+    <aside>
+      <ul>
+        <li>python</li>
+      </ul>
+    </aside>
+  </body>
+</html>
+```
+
+`yield from` also closes the component right away
+when the response is stopped early, such as when the client disconnects,
+whereas a component that is looped over with `async for`
+is only closed later, by the event loop, after it has been garbage-collected.
 
 Data that does not depend on what was written before can be loaded concurrently,
 for example with {func}`asyncio.gather`,
