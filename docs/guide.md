@@ -901,8 +901,11 @@ work with any event loop, such as asyncio or Trio.
 
 Content that comes in order can only be sent once everything before it is ready,
 so one slow query holds up the rest of the page.
-{class}`~hyperscribe.streaming.OutOfOrder` writes a placeholder instead
-and starts loading the content in the background.
+{class}`~hyperscribe.streaming.OutOfOrder` starts loading the content in the background
+and gives you a placeholder to write in its place.
+The placeholder is written like a tag:
+call it with its content, such as a loading message,
+or use it in a `with` statement.
 Once the rest of the page has been written,
 {meth}`~hyperscribe.streaming.OutOfOrder.resolve` writes each part as soon as it is ready,
 inside a `<template>` with a short script that moves it into its placeholder:
@@ -911,8 +914,8 @@ inside a `<template>` with a short script that moves it into its placeholder:
 async def page(doc: BufferedDocWriter) -> AsyncIterator[None]:
     slots = OutOfOrder(doc)
     with layout(doc, "Articles"):
-        slots.defer(fetch_articles(), item_list, "Loading…")
-        slots.defer(fetch_tags(), item_list)
+        slots.defer(fetch_articles(), item_list)("Loading…")
+        slots.defer(fetch_tags(), item_list)()
         doc.tags.footer("Thanks for reading")
         yield
         async for _ in slots.resolve():
@@ -960,7 +963,9 @@ Out-of-order streaming starts asyncio tasks, so unlike the rest of the module it
 The placeholder is a `<div>` that is replaced as a whole.
 Pass `tag` and attributes for a different element,
 and `keep=True` to keep the element and replace only its content,
-so that it becomes the parent of what is rendered:
+so that it becomes the parent of what is rendered.
+Used in a `with` statement, the placeholder can hold any markup,
+and around a section of the page it fills that section in later:
 
 ```python
 def list_items(doc: DocWriter, items: list[str]) -> None:
@@ -968,15 +973,13 @@ def list_items(doc: DocWriter, items: list[str]) -> None:
         doc.tags.li(escape(item))
 
 
-slots.defer(
-    fetch_articles(),
-    list_items,
-    trust("<li>Loading…</li>"),
-    tag="ul",
-    keep=True,
-    id="articles",
-)
+with slots.defer(fetch_articles(), list_items, tag="ul", keep=True, id="articles"):
+    t.li("Loading…")
 ```
+
+Each placeholder has to be written exactly once,
+before {meth}`~hyperscribe.streaming.OutOfOrder.resolve` is called,
+which raises a {exc}`RuntimeError` otherwise.
 
 Placeholders are numbered after a prefix unless they are given an `id`,
 which is then up to you to keep unique within the page.

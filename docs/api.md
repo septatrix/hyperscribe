@@ -40,6 +40,9 @@
 .. autoclass:: hyperscribe.streaming.OutOfOrder
    :members: defer, resolve
    :special-members: __init__
+
+.. autoclass:: hyperscribe.streaming.Placeholder
+   :special-members: __call__
 ```
 
 ## Tag objects

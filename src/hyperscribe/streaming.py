@@ -34,11 +34,12 @@ from collections.abc import (
     Coroutine,
     Generator,
 )
+from types import TracebackType
 from typing import TYPE_CHECKING, Any, Concatenate, ParamSpec, TypeVar, overload
 
-from . import AttributeValue, DocWriter, TrustedContent, escape, trust
+from . import AttributeValue, DocWriter, TrustedContent, _TagBuilder, escape, trust
 
-__all__ = ["AsyncDocWriter", "BufferedDocWriter", "OutOfOrder", "stream"]
+__all__ = ["AsyncDocWriter", "BufferedDocWriter", "OutOfOrder", "Placeholder", "stream"]
 
 _P = ParamSpec("_P")
 _T = TypeVar("_T")
@@ -235,6 +236,43 @@ def _script_string(value: str) -> str:
     return json.dumps(value).replace("<", "\\u003c")
 
 
+class Placeholder:
+    """The element a deferred part takes the place of, from :meth:`OutOfOrder.defer`.
+
+    It is written like a tag, exactly once:
+    call it with content, such as a loading message,
+    or use it as a context manager and write the content in the block.
+    """
+
+    __slots__ = ("_element", "_written")
+
+    def __init__(self, element: _TagBuilder) -> None:
+        self._element = element
+        self._written = False
+
+    def _write(self) -> None:
+        if self._written:
+            raise RuntimeError("a placeholder can only be written once")
+        self._written = True
+
+    def __call__(self, content: TrustedContent = "", /) -> None:
+        """Write the element with ``content``, or empty if it is left out."""
+        self._write()
+        self._element(content)
+
+    def __enter__(self) -> None:
+        self._write()
+        self._element.__enter__()
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_value: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> None:
+        self._element.__exit__(exc_type, exc_value, traceback)
+
+
 class OutOfOrder:
     """Send the rest of the page while slow parts of it are still loading.
 
@@ -273,7 +311,8 @@ class OutOfOrder:
         self._nonce = None if nonce is None else escape(nonce)
         self._count = 0
         self._pending: dict[
-            asyncio.Future[Any], tuple[str, Callable[[DocWriter, Any], None]]
+            asyncio.Future[Any],
+            tuple[Placeholder, str, Callable[[DocWriter, Any], None]],
         ] = {}
 
     def defer(
@@ -281,21 +320,27 @@ class OutOfOrder:
         awaitable: Awaitable[_T],
         render: Callable[[DocWriter, _T], None],
         /,
-        placeholder: TrustedContent = "",
         *,
         tag: str = "div",
         id: str | None = None,
         keep: bool = False,
         **attrs: AttributeValue,
-    ) -> None:
-        """Write a placeholder now, and ``render(doc, await awaitable)`` later.
+    ) -> Placeholder:
+        """Return a placeholder to write now, to be filled in by ``render`` later.
 
-        The placeholder is a ``tag`` element with the given attributes,
-        holding ``placeholder``, such as a loading message.
-        By default it is replaced as a whole by what ``render`` writes.
+        The placeholder is a ``tag`` element with the given attributes.
+        Write it like a tag, with a loading message for example::
+
+            slots.defer(fetch_articles(), article_list)("Loading…")
+
+            with slots.defer(fetch_articles(), article_list, tag="section"):
+                t.h2("Articles")
+                t.p("Loading…")
+
+        Once the data has arrived, :meth:`resolve` calls ``render(doc, data)``,
+        and by default the placeholder is replaced as a whole by what it writes.
         With ``keep``, the element stays and only its content is replaced,
-        so ``render`` writes the element's new children,
-        as in ``slots.defer(fetch(), items, tag="ul", keep=True, class_="list")``.
+        so the element becomes the parent of what ``render`` writes.
 
         The element gets ``id`` as its ID if given,
         which is then up to the caller to keep unique,
@@ -308,12 +353,13 @@ class OutOfOrder:
             target = f"{self._prefix}-{self._count}"
         else:
             target = id
-        self._doc.tags[tag](placeholder, id=escape(target), **attrs)
+        placeholder = Placeholder(self._doc.tags[tag](id=escape(target), **attrs))
         script = _SWAP.substitute(
             target=_script_string(target),
             method="replaceChildren" if keep else "replaceWith",
         )
-        self._pending[asyncio.ensure_future(awaitable)] = (script, render)
+        self._pending[asyncio.ensure_future(awaitable)] = (placeholder, script, render)
+        return placeholder
 
     async def resolve(self) -> AsyncIterator[None]:
         """Render the deferred parts in the order their data arrives.
@@ -329,7 +375,8 @@ class OutOfOrder:
           ``async for _ in slots.resolve(): pass`` is enough,
           because waiting for the next part sends the previous one.
 
-        Call it where the parts should be written, usually right before ``</body>``.
+        Call it where the parts should be written, usually right before ``</body>``,
+        once every placeholder has been written.
         If rendering a part fails, the parts still loading are cancelled.
         """
         doc = self._doc
@@ -337,12 +384,17 @@ class OutOfOrder:
         nonce = self._nonce
         pending = self._pending
         try:
+            if any(not placeholder._written for placeholder, _, _ in pending.values()):
+                raise RuntimeError(
+                    "every placeholder from defer() has to be written before "
+                    "resolve(), by calling it or using it in a with statement"
+                )
             while pending:
                 done, _ = await asyncio.wait(
                     pending.keys(), return_when=asyncio.FIRST_COMPLETED
                 )
                 for task in done:
-                    script, render = pending.pop(task)
+                    _, script, render = pending.pop(task)
                     value = task.result()
                     with t.template:
                         render(doc, value)

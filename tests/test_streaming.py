@@ -229,8 +229,8 @@ def test_out_of_order_parts_are_written_as_they_arrive() -> None:
         t = doc.tags
         slots = OutOfOrder(doc, nonce="n<1")
         with t.body:
-            slots.defer(later(["slow"], 0.05), articles, "Loading…")
-            slots.defer(later(["fast"], 0.01), articles, tag="section")
+            slots.defer(later(["slow"], 0.05), articles)("Loading…")
+            slots.defer(later(["fast"], 0.01), articles, tag="section")()
             t.footer("end")
             yield
             async for _ in slots.resolve():
@@ -261,7 +261,7 @@ def test_out_of_order_parts_are_written_as_they_arrive() -> None:
 def test_out_of_order_flushes_implicitly_in_async_functions() -> None:
     async def page(doc: BufferedDocWriter) -> None:
         slots = OutOfOrder(doc, prefix="s")
-        slots.defer(later(["a"]), articles)
+        slots.defer(later(["a"]), articles)()
         async for _ in slots.resolve():
             pass
 
@@ -280,7 +280,7 @@ def test_out_of_order_with_explicit_drains() -> None:
     async def main() -> None:
         doc = AsyncDocWriter(send)
         slots = OutOfOrder(doc)
-        slots.defer(later(["a"]), articles)
+        slots.defer(later(["a"]), articles)()
         await doc.drain()
         async for _ in slots.resolve():
             await doc.drain()
@@ -309,8 +309,8 @@ def test_out_of_order_cancels_the_rest_when_a_part_fails() -> None:
     async def main() -> None:
         doc = BufferedDocWriter()
         slots = OutOfOrder(doc)
-        slots.defer(slow(), articles)
-        slots.defer(fail(), articles)
+        slots.defer(slow(), articles)()
+        slots.defer(fail(), articles)()
         with pytest.raises(LookupError):
             async for _ in slots.resolve():
                 pass
@@ -328,21 +328,18 @@ def test_out_of_order_can_keep_the_placeholder_element() -> None:
     async def main() -> str:
         doc = BufferedDocWriter()
         slots = OutOfOrder(doc)
-        slots.defer(
-            ready(["a"]),
-            items,
-            trust("<li>…</li>"),
-            tag="ul",
-            keep=True,
-            id="articles",
-            class_="list",
-        )
+        with slots.defer(
+            ready(["a"]), items, tag="ul", keep=True, id="articles", class_="list"
+        ):
+            doc.tags.li(trust("…"))
         async for _ in slots.resolve():
             pass
         return doc.take()
 
     assert run(main) == (
-        '<ul id="articles" class="list"><li>…</li></ul>\n'
+        '<ul id="articles" class="list">\n'
+        "  <li>…</li>\n"
+        "</ul>\n"
         "<template>\n"
         "  <li>a</li>\n"
         "</template>\n"
@@ -367,7 +364,7 @@ def test_out_of_order_ids_are_encoded_for_attributes_and_scripts(
     async def main() -> str:
         doc = BufferedDocWriter()
         slots = OutOfOrder(doc)
-        slots.defer(ready([]), articles, id=given)
+        slots.defer(ready([]), articles, id=given)()
         async for _ in slots.resolve():
             pass
         return doc.take()
@@ -376,3 +373,39 @@ def test_out_of_order_ids_are_encoded_for_attributes_and_scripts(
     assert output.startswith(f'<div id="{attribute}"></div>\n')
     assert f"getElementById({literal})" in output
     assert output.count("</script>") == 1
+
+
+def test_placeholders_must_be_written_exactly_once() -> None:
+    async def main() -> None:
+        doc = BufferedDocWriter()
+        slots = OutOfOrder(doc)
+        placeholder = slots.defer(ready([]), articles)
+        placeholder()
+        with pytest.raises(RuntimeError, match="only be written once"), placeholder:
+            pass
+        slots.defer(ready([]), articles)
+        with pytest.raises(RuntimeError, match="has to be written before"):
+            async for _ in slots.resolve():
+                pass
+
+    run(main)
+
+
+def test_placeholder_block_wraps_the_written_content() -> None:
+    async def main() -> str:
+        doc = BufferedDocWriter()
+        t = doc.tags
+        slots = OutOfOrder(doc, prefix="p")
+        with t.main, slots.defer(ready(["a"]), articles, tag="section"):
+            t.h2("Articles")
+            t.p("Loading…")
+        return doc.take()
+
+    assert run(main) == (
+        "<main>\n"
+        '  <section id="p-1">\n'
+        "    <h2>Articles</h2>\n"
+        "    <p>Loading…</p>\n"
+        "  </section>\n"
+        "</main>\n"
+    )
