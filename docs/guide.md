@@ -745,7 +745,7 @@ from collections.abc import AsyncIterator, Iterator
 from contextlib import contextmanager
 
 from hyperscribe import DocWriter, escape
-from hyperscribe.streaming import AsyncDocWriter, aiter_chunks, iter_chunks
+from hyperscribe.streaming import AsyncDocWriter, OutOfOrder, aiter_chunks, iter_chunks
 
 
 async def fetch_articles() -> list[str]:
@@ -1005,3 +1005,108 @@ def app(environ, start_response):
 {func}`~hyperscribe.streaming.aiter_chunks` accepts generator templates as well,
 so one template can be served by synchronous and async servers alike,
 as long as what it waits for does not block an async server for long.
+
+### Out-of-order streaming
+
+Content that comes in order can only be sent once everything before it is ready,
+so one slow query holds up the rest of the page.
+{class}`~hyperscribe.streaming.OutOfOrder` starts loading the content in the background
+and gives you an ID for a placeholder to write in its place.
+The placeholder is any element with that ID,
+holding a loading message, for example.
+Once the rest of the page has been written,
+{meth}`~hyperscribe.streaming.OutOfOrder.resolve` writes each part as soon as it is ready,
+inside a `<template>` with a short script that moves it into its placeholder,
+and yields after each one, so the template can send it on:
+
+```{testcode} streaming
+async def page(doc: DocWriter) -> AsyncIterator[None]:
+    with layout(doc, "Articles"), OutOfOrder(doc) as slots:
+        doc.tags.div("Loading…", id=slots.defer(fetch_articles(), item_list))
+        doc.tags.div("", id=slots.defer(fetch_tags(), item_list))
+        doc.tags.footer("Thanks for reading")
+        yield
+        async for _ in slots.resolve():
+            yield
+
+
+asyncio.run(show(aiter_chunks(page)))
+```
+
+```{testoutput} streaming
+[chunk]
+<html lang="en">
+  <head><title>Articles</title></head>
+  <body>
+    <div id="hyperscribe-slot-1">Loading…</div>
+    <div id="hyperscribe-slot-2"></div>
+    <footer>Thanks for reading</footer>
+[chunk]
+    <template>
+      <ul>
+        <li>python</li>
+      </ul>
+    </template>
+    <script>{let script = document.currentScript;let template = script.previousElementSibling;document.getElementById("hyperscribe-slot-2").replaceWith(template.content);template.remove();script.remove();}</script>
+[chunk]
+    <template>
+      <ul>
+        <li>Async &amp; you</li>
+      </ul>
+    </template>
+    <script>{let script = document.currentScript;let template = script.previousElementSibling;document.getElementById("hyperscribe-slot-1").replaceWith(template.content);template.remove();script.remove();}</script>
+[chunk]
+  </body>
+</html>
+```
+
+The tags were faster, so they were sent first.
+With an {class}`~hyperscribe.streaming.AsyncDocWriter`,
+send each part on with `async for _ in slots.resolve(): await doc.drain()` instead.
+Several parts can wait for the same task, which then loads only once.
+
+The `with` statement cancels the parts still loading
+when the block ends with an exception,
+including when the response is stopped because the client disconnected.
+If the block ends normally while parts have not been resolved,
+they are cancelled as well and a {exc}`RuntimeError` is raised,
+since they would never reach the page.
+Out-of-order streaming starts asyncio tasks, so unlike the rest of the module it needs asyncio.
+
+Parts that are done early do not have to wait for the others.
+{meth}`~hyperscribe.streaming.OutOfOrder.write_completed` writes them right away,
+which is worth it before waiting for something slow that is not deferred:
+
+```python
+with OutOfOrder(doc) as slots:
+    doc.tags.div("Loading…", id=slots.defer(fetch_tags(), item_list))
+    ...
+    if slots.write_completed():  # the tags, if they have arrived
+        yield
+    item_list(doc, await fetch_articles())
+```
+
+The placeholder is replaced as a whole by default.
+Pass `keep=True` to keep the element and replace only its content,
+so that it becomes the parent of what is rendered.
+Since the placeholder is written like any other element,
+it can have any attributes and hold any markup:
+
+```python
+def list_items(doc: DocWriter, items: list[str]) -> None:
+    for item in items:
+        doc.tags.li(escape(item))
+
+
+with t.ul(class_="articles", id=slots.defer(fetch_articles(), list_items, keep=True)):
+    t.li("Loading…")
+```
+
+The ID is a {class}`~hyperscribe.streaming.SlotId`, which is escaped when it is written.
+Each one has to be written exactly once, before its part is,
+which raises a {exc}`RuntimeError` otherwise.
+
+IDs are numbered after a prefix unless {meth}`~hyperscribe.streaming.OutOfOrder.defer` is given an `id`,
+which is then up to you to keep unique within the page.
+On pages with a content security policy,
+pass the policy's `nonce` to {class}`~hyperscribe.streaming.OutOfOrder`.
