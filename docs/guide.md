@@ -38,7 +38,7 @@ Tags are used in one of two ways.
 Calling a tag with content writes the complete element on one line.
 The content is handled like that of `doc(...)`, described under
 [Trusted content](#trusted-content): it is written as it is,
-so dynamic strings go through {func}`~hyperscribe.escape` first.
+so dynamic strings go through {func}`~hyperscribe.markup.escape` first.
 
 ```{testcode}
 t.p(escape("Fish & chips"))
@@ -83,7 +83,7 @@ it is emitted even if you leave the block early with `break` or `return`.
 Pass attributes as keyword arguments, both to leaf and to container tags.
 Like tag content, string values are written as they are
 between double quotes, so dynamic strings go through
-{func}`~hyperscribe.escape` first, which also escapes quotes.
+{func}`~hyperscribe.markup.escape` first, which also escapes quotes.
 
 ```{testcode}
 t.a("Home", href="/")
@@ -139,12 +139,12 @@ so only pass names you control.
 
 | Value | Result |
 | --- | --- |
-| a literal string, or one from {func}`~hyperscribe.escape` or {func}`~hyperscribe.trust` | written as it is |
+| a literal string, or one from {func}`~hyperscribe.markup.escape` or {func}`~hyperscribe.markup.trust` | written as it is |
 | an `int` or `float` | `str(value)` |
 | an object with `__html__` | its `__html__()` |
 | a template string | like [tag content](#template-strings), with its values escaped |
 | `True` | the bare attribute, as in `<script defer>` |
-| a dictionary | flattened with the name as a prefix |
+| a dictionary | flattened with the name as a prefix, except for `class` and `style` |
 | `False` or `None` | the attribute is left out |
 
 This makes optional attributes a matter of passing the value or `None`:
@@ -158,12 +158,43 @@ As with content, a type checker that supports `LiteralString`, such as pyright,
 rejects a plain `str` variable as an attribute value,
 and the writer does not escape anything itself:
 a string that comes from user input and is not passed through
-{func}`~hyperscribe.escape` can break out of the attribute.
+{func}`~hyperscribe.markup.escape` can break out of the attribute.
 
 ```{testoutput}
 <a href="/docs">Docs</a>
 <script src="app.js" defer></script>
 ```
+
+### Classes
+
+{func}`~hyperscribe.markup.classes` builds a `class` attribute
+from fixed names and conditional ones,
+given as a dictionary from names to whether to include them:
+
+```{testcode}
+from hyperscribe import classes
+
+is_active = True
+t.button("Save", class_=classes("btn", {"active": is_active, "disabled": False}))
+t.button("Cancel", class_=classes({"active": False}))
+```
+
+```{testoutput}
+<button class="btn active">Save</button>
+<button>Cancel</button>
+```
+
+`None` and `False` are skipped, so `is_active and "active"` works as an argument too,
+and when no names are left, the attribute is left out.
+The names are escaped.
+A dictionary passed to `class_` directly raises {exc}`TypeError`,
+because other dictionaries are prefixes (`data={"id": 7}` gives `data-id="7"`),
+and `class-active` is not what anyone means;
+the same goes for `style`, which is written as a string.
+
+The helpers for values, {func}`~hyperscribe.markup.classes`, {func}`~hyperscribe.markup.escape`,
+{func}`~hyperscribe.markup.escape_silent` and {func}`~hyperscribe.markup.trust`,
+live in {mod}`hyperscribe.markup` and are also available from `hyperscribe` itself.
 
 ## Nested tags
 
@@ -227,7 +258,7 @@ t.span(escape(user.name))
 Tag content and calling the writer directly write trusted content verbatim,
 with the current indentation and line ending.
 Its type annotation accepts {class}`typing.LiteralString`,
-{data}`~hyperscribe.SafeStr`,
+{data}`~hyperscribe.markup.SafeStr`,
 values implementing ``__html__`` (such as MarkupSafe's {class}`~markupsafe.Markup`),
 and ``int`` or ``float`` values:
 
@@ -249,7 +280,7 @@ only use them for content that is safe to include as HTML.
 A type checker rejects other strings,
 such as those built with an f-string from user input.
 To write such a string without a tag around it,
-pass it through {func}`~hyperscribe.escape` first:
+pass it through {func}`~hyperscribe.markup.escape` first:
 
 ```{testcode}
 from hyperscribe import escape
@@ -264,8 +295,8 @@ with doc.inline(), t.p:
 ```
 
 Optional values, which may be `None`,
-go through {func}`~hyperscribe.escape_silent`,
-which is like {func}`~hyperscribe.escape` but writes `None` as an empty string
+go through {func}`~hyperscribe.markup.escape_silent`,
+which is like {func}`~hyperscribe.markup.escape` but writes `None` as an empty string
 instead of raising a {class}`TypeError`:
 
 ```{testcode}
@@ -281,7 +312,7 @@ with doc.inline(), t.td:
 
 For a dynamic string that is already valid HTML,
 such as markup read from a trusted file,
-{func}`~hyperscribe.trust` marks it as safe without escaping it:
+{func}`~hyperscribe.markup.trust` marks it as safe without escaping it:
 
 ```{testcode}
 from hyperscribe import trust
@@ -294,7 +325,7 @@ doc(trust(rendered))
 <b>trusted</b>
 ```
 
-Both return a {data}`~hyperscribe.SafeStr`.
+Both return a {data}`~hyperscribe.markup.SafeStr`.
 It only exists for type checkers and is a plain {class}`str` at runtime,
 so type checkers can tell trusted strings from the rest,
 in attribute values as well as in content.
@@ -352,9 +383,9 @@ Template strings are also accepted as attribute values:
 in `t.a("x", href=t"/users/{user.id}?q={query}")`,
 the literal parts are trusted and the interpolated values are escaped as above.
 
-{func}`~hyperscribe.SafeStr` only exists for type checkers
+{data}`~hyperscribe.markup.SafeStr` only exists for type checkers
 and is a plain {class}`str` at run time,
-so a string from {func}`~hyperscribe.escape` or {func}`~hyperscribe.trust`
+so a string from {func}`~hyperscribe.markup.escape` or {func}`~hyperscribe.markup.trust`
 is escaped again when it is interpolated:
 
 ```{testcode}
@@ -412,7 +443,7 @@ normal formatting resumes once the outermost one exits.
 
 ## Escaping
 
-{func}`~hyperscribe.escape` escapes `&`, `<`, `>` and both kinds of quotes,
+{func}`~hyperscribe.markup.escape` escapes `&`, `<`, `>` and both kinds of quotes,
 so its result is safe in text and in double-quoted attribute values.
 The writer does not escape anything itself,
 so every dynamic string, in tag content and in attribute values alike,
