@@ -4,7 +4,7 @@
 .. module:: hyperscribe
 
 .. autoclass:: hyperscribe.DocWriter
-   :members: tags, voids, parts, comment, inline, text, write_raw, tag, void_tag
+   :members: tags, voids, parts, comment, inline
    :special-members: __call__
 
 .. autofunction:: hyperscribe.escape

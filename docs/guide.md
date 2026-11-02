@@ -390,13 +390,6 @@ Escaping is for HTML text and attribute values only:
 template strings do not make it safe to interpolate into a `<script>` or `<style>` element,
 an event handler attribute or a URL scheme.
 
-```{note}
-{meth}`~hyperscribe.DocWriter.text` and {meth}`~hyperscribe.DocWriter.write_raw`
-are deprecated.
-Use `doc(...)` for trusted content, including a doctype,
-and `doc(escape(value))` for anything else.
-```
-
 ### Inline formatting
 
 By default every tag gets its own line.

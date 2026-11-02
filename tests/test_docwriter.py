@@ -81,12 +81,25 @@ def test_subscription_chains_from_tags() -> None:
 
 def test_private_names_are_not_tags() -> None:
     doc = DocWriter(StringIO())
-    with pytest.raises(AttributeError), pytest.deprecated_call():
-        doc._missing  # noqa: B018
+    with pytest.raises(AttributeError):
+        doc._missing  # type: ignore[attr-defined]  # noqa: B018
     with pytest.raises(AttributeError):
         doc.tags.div._missing  # noqa: B018
     with pytest.raises(AttributeError):
         doc.voids._missing  # noqa: B018
+
+
+@pytest.mark.parametrize("removed", ["p", "tag", "void_tag", "write_raw", "text"])
+def test_tags_and_removed_methods_are_not_attributes_of_the_writer(
+    removed: str,
+) -> None:
+    with pytest.raises(AttributeError):
+        getattr(DocWriter(StringIO()), removed)
+
+
+def test_writer_is_not_subscriptable() -> None:
+    with pytest.raises(TypeError):
+        DocWriter(StringIO())["p"]  # type: ignore[index]
 
 
 def test_method_names_are_tags_too() -> None:
@@ -111,32 +124,6 @@ def test_parts_unpack_the_writer() -> None:
             w("x")
 
     assert render(build) == "<p>\n  <br>\n  x\n</p>\n"
-
-
-def test_tag_access_on_the_writer_is_deprecated() -> None:
-    def build(doc: DocWriter) -> None:
-        with pytest.deprecated_call():
-            doc.p("a")
-        with pytest.deprecated_call():
-            doc["x-y"]("b")
-
-    assert render(build) == "<p>a</p>\n<x-y>b</x-y>\n"
-
-
-def test_void_tag_method_is_deprecated() -> None:
-    def build(doc: DocWriter) -> None:
-        with pytest.deprecated_call():
-            doc.void_tag("img", src="a.png")
-
-    assert render(build) == '<img src="a.png">\n'
-
-
-def test_tag_method_is_deprecated() -> None:
-    def build(doc: DocWriter) -> None:
-        with pytest.deprecated_call(), doc.tag("my-element", id="1"):
-            pass
-
-    assert render(build) == '<my-element id="1">\n</my-element>\n'
 
 
 def test_tags_are_cached() -> None:
@@ -291,15 +278,6 @@ def test_call_indents_html_protocol_content() -> None:
     assert render(build) == "<div>\n  <b>trusted</b>\n</div>\n"
 
 
-@pytest.mark.filterwarnings("ignore:Use doc.* instead:DeprecationWarning")
-def test_write_raw_is_not_escaped_or_indented() -> None:
-    def build(doc: DocWriter) -> None:
-        with doc.tags.div:
-            doc.write_raw("<hr>\n")
-
-    assert render(build) == "<div>\n<hr>\n</div>\n"
-
-
 def test_inline_suppresses_whitespace() -> None:
     def build(doc: DocWriter) -> None:
         with doc.tags.ul:
@@ -445,11 +423,9 @@ def test_unpacked_attribute_names_are_still_possible() -> None:
     assert result == '<p xml:lang="en">x</p>\n'
 
 
-@pytest.mark.filterwarnings("ignore:Use doc.* instead:DeprecationWarning")
 def test_number_content_is_converted() -> None:
     assert render(lambda doc: doc.tags.p(3)) == "<p>3</p>\n"
     assert render(lambda doc: doc(1.5)) == "1.5\n"
-    assert render(lambda doc: doc.text(True)) == "True\n"
 
 
 def test_none_content_is_rejected() -> None:
