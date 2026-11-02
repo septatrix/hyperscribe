@@ -23,6 +23,28 @@
    :annotation:
 ```
 
+## Streaming
+
+```{eval-rst}
+.. automodule:: hyperscribe.streaming
+   :no-members:
+
+.. autoclass:: hyperscribe.streaming.BufferedDocWriter
+   :members: take
+
+.. autoclass:: hyperscribe.streaming.AsyncDocWriter
+   :members: drain
+
+.. autofunction:: hyperscribe.streaming.stream
+
+.. autoclass:: hyperscribe.streaming.OutOfOrder
+   :members: defer, resolve
+   :special-members: __init__
+
+.. autoclass:: hyperscribe.streaming.Placeholder
+   :special-members: __call__
+```
+
 ## Tag objects
 
 {attr}`~hyperscribe.DocWriter.tags` is a tag builder,

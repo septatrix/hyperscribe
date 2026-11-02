@@ -579,7 +579,7 @@ name = "hyperscribe"
 source = { editable = "." }
 default-groups = ["dev", "docs"]
 dependencies = [
-    { name = "typing-extensions", marker = "python_full_version < '3.13'" },
+    { name = "typing-extensions", marker = "python_full_version < '3.14'" },
 ]
 
 [package.dev-dependencies]
@@ -616,7 +616,7 @@ docs = [
 ]
 
 [package.metadata]
-requires-dist = [{ name = "typing-extensions", marker = "python_full_version < '3.13'", specifier = ">=4.0" }]
+requires-dist = [{ name = "typing-extensions", marker = "python_full_version < '3.14'", specifier = ">=4.14" }]
 
 [package.metadata.requires-dev]
 benchmarks = [

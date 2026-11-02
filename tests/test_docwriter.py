@@ -328,7 +328,7 @@ def test_writes_to_any_object_with_write() -> None:
             chunks.append(value)
             return len(value)
 
-    DocWriter(Sink()).tags.p("x")  # type: ignore[arg-type]
+    DocWriter(Sink()).tags.p("x")
     assert "".join(chunks) == "<p>x</p>\n"
 
 
