@@ -17,11 +17,6 @@ from typing import (
     runtime_checkable,
 )
 
-if sys.version_info >= (3, 13):
-    from warnings import deprecated
-else:
-    from typing_extensions import deprecated
-
 if sys.version_info >= (3, 11):
     from typing import LiteralString
 else:
@@ -437,18 +432,6 @@ class DocWriter:
         """
         return self, self.tags, self.voids
 
-    @deprecated("Use doc.tags.<name> instead")
-    def __getattr__(self, name: str) -> _TagBuilder:
-        """Return a tag by name; use :attr:`tags` instead."""
-        if name.startswith("_"):
-            raise AttributeError(name)
-        return self.tags[name]
-
-    @deprecated("Use doc.tags[name] instead")
-    def __getitem__(self, name: str) -> _TagBuilder:
-        """Return a tag by any name; use :attr:`tags` instead."""
-        return self.tags[name]
-
     def __call__(self, value: TrustedContent) -> None:
         """Write trusted content verbatim, preserving the current indentation.
 
@@ -467,22 +450,6 @@ class DocWriter:
         Blocks may be nested; formatting resumes once the outermost one exits.
         """
         return _InlineContext(self)
-
-    @deprecated("Use doc.tags[name](...) instead")
-    def tag(self, name: str, /, **attrs: AttributeValue) -> _TagBuilder:
-        """Return a tag with any name and attributes.
-
-        Equivalent to ``doc.tags[name](**attrs)``, which should be used instead.
-        """
-        return self.tags[name](**attrs)
-
-    @deprecated("Use doc.voids[name](...) instead")
-    def void_tag(self, name: str, /, **attrs: AttributeValue) -> None:
-        """Write a void element such as ``<br>`` or ``<img>`` on its own line.
-
-        Equivalent to ``doc.voids[name](**attrs)``, which should be used instead.
-        """
-        self.voids[name](**attrs)
 
     def comment(self, text: str) -> None:
         """Write an HTML comment on its own line.
@@ -508,16 +475,3 @@ class DocWriter:
         except IndexError:
             self._generate_prefix(depth)
             return self._prefixes[depth]
-
-    @deprecated("Use doc(...) instead")
-    def write_raw(self, value: str) -> None:
-        """Write unescaped text to the document, bypassing the escaping logic."""
-        self._write(value)
-
-    @deprecated("Use doc(...) instead")
-    def text(self, value: object) -> None:
-        """Write escaped text to the document on its own line.
-
-        Values that are not strings are converted with :class:`str`.
-        """
-        self._write(f"{self._prefix(self._depth)}{escape(str(value))}{self._end}")

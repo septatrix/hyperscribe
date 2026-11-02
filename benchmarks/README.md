@@ -30,7 +30,7 @@ It also uses the attribute and content handling of the package:
 `True` writes a boolean attribute,
 `class_` becomes `class`, `data={"category": ...}` becomes `data-category`,
 numbers are written as content and attributes without `str()`,
-and `doc.void_tag` and `doc.comment` write the void elements and the comments.
+and `doc.voids` and `doc.comment` write the void elements and the comments.
 Tagflow is the unrelated [`tagflow`](https://pypi.org/project/tagflow/) package from PyPI,
 which builds an ElementTree through context managers backed by context variables.
 
