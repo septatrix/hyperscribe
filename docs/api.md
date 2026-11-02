@@ -13,6 +13,9 @@
 
 .. autofunction:: hyperscribe.trust
 
+.. autodata:: hyperscribe.Ignored
+   :annotation:
+
 .. autodata:: hyperscribe.SafeStr
    :annotation:
 
@@ -21,6 +24,26 @@
 
 .. autodata:: hyperscribe.AttributeValue
    :annotation:
+```
+
+## Streaming
+
+```{eval-rst}
+.. automodule:: hyperscribe.streaming
+   :no-members:
+
+.. autoclass:: hyperscribe.streaming.AsyncDocWriter
+   :members: drain
+
+.. autofunction:: hyperscribe.streaming.aiter_chunks
+
+.. autofunction:: hyperscribe.streaming.iter_chunks
+
+.. autoclass:: hyperscribe.streaming.OutOfOrder
+   :members: defer, write_completed, resolve, cancel
+   :special-members: __init__, __exit__
+
+.. autoclass:: hyperscribe.streaming.SlotId
 ```
 
 ## Tag objects

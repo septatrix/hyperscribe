@@ -5,6 +5,8 @@
 Everything starts with a {class}`~hyperscribe.DocWriter`,
 which wraps any object with a `write(str)` method:
 a {class}`io.StringIO`, an open file, or a socket wrapper.
+It also takes a function that is called with each piece of text,
+such as `parts.append` to collect the pieces in a list.
 
 ```python
 from io import StringIO
@@ -723,3 +725,433 @@ Because output goes straight to the object you provide,
 nothing is buffered by hyperscribe itself.
 Pass a file or a socket wrapper to send the document as it is generated,
 or a `StringIO` to get the result as a string.
+
+### Async templates
+
+Templates that wait for data, such as database queries,
+can be `async` functions while writing markup as usual.
+Writes stay synchronous,
+so there is no `await` in front of every tag.
+The {mod}`hyperscribe.streaming` module collects what is written in a buffer
+and sends it on in chunks at the few places where that is worth it,
+usually right before the template waits for something slow.
+That way the browser gets the `<head>` early and can start loading styles and scripts.
+
+The examples below share this layout and these stand-ins for slow queries:
+
+```{testcode} streaming
+import asyncio
+from collections.abc import AsyncIterator, Iterator
+from contextlib import contextmanager
+
+from hyperscribe import DocWriter, escape
+from hyperscribe.streaming import AsyncDocWriter, OutOfOrder, aiter_chunks, iter_chunks
+
+
+async def fetch_articles() -> list[str]:
+    await asyncio.sleep(0.02)
+    return ["Async & you"]
+
+
+async def fetch_tags() -> list[str]:
+    await asyncio.sleep(0.01)
+    return ["python"]
+
+
+@contextmanager
+def layout(doc: DocWriter, title: str) -> Iterator[None]:
+    t = doc.tags
+    with t.html(lang="en"):
+        t.head.title(escape(title))
+        with t.body:
+            yield
+
+
+def item_list(doc: DocWriter, items: list[str]) -> None:
+    with doc.tags.ul:
+        for item in items:
+            doc.tags.li(escape(item))
+
+
+async def show(chunks: AsyncIterator[str]) -> None:
+    async for chunk in chunks:
+        print(f"[chunk]\n{chunk}", end="")
+```
+
+{func}`~hyperscribe.streaming.aiter_chunks` turns a template written as an async generator
+into an async iterator of strings,
+which most async web frameworks accept as a streaming response body,
+such as Starlette's `StreamingResponse`.
+The template is sent on at each bare `yield`, and nowhere else,
+so you choose where the chunks end,
+usually right before waiting for something slow.
+A `yield` only reaches the generator that contains it,
+and before Python 3.16 async generators have no `yield from`,
+so a component that yields is passed on with `async for _ in component(doc): yield`:
+
+```{testcode} streaming
+async def tag_box(doc: DocWriter) -> AsyncIterator[None]:
+    yield  # send what the page has written while waiting for the tags
+    tags = await fetch_tags()
+    with doc.tags.aside:
+        item_list(doc, tags)
+
+
+async def page(doc: DocWriter) -> AsyncIterator[None]:
+    with layout(doc, "Articles"):
+        doc.tags.h1("Latest")
+        yield
+        item_list(doc, await fetch_articles())
+        async for _ in tag_box(doc):
+            yield
+
+
+asyncio.run(show(aiter_chunks(page)))
+```
+
+```{testoutput} streaming
+[chunk]
+<html lang="en">
+  <head><title>Articles</title></head>
+  <body>
+    <h1>Latest</h1>
+[chunk]
+    <ul>
+      <li>Async &amp; you</li>
+    </ul>
+[chunk]
+    <aside>
+      <ul>
+        <li>python</li>
+      </ul>
+    </aside>
+  </body>
+</html>
+```
+
+The page was sent in three chunks:
+up to the first `yield`,
+up to the component's `yield` before it waited for the tags,
+and the rest once the template returned.
+Arguments after the template are passed on to it,
+as in `aiter_chunks(page, user, page=2)`.
+
+On Python 3.16 and newer, async generators support `yield from` ({pep}`828`),
+so a component is passed on as in a synchronous generator,
+with the same result:
+
+```{testcode} streaming
+:skipif: sys.version_info < (3, 16)
+
+async def page(doc: DocWriter) -> AsyncIterator[None]:
+    with layout(doc, "Articles"):
+        doc.tags.h1("Latest")
+        yield
+        item_list(doc, await fetch_articles())
+        yield from tag_box(doc)
+
+
+asyncio.run(show(aiter_chunks(page)))
+```
+
+```{testoutput} streaming
+:skipif: sys.version_info < (3, 16)
+
+[chunk]
+<html lang="en">
+  <head><title>Articles</title></head>
+  <body>
+    <h1>Latest</h1>
+[chunk]
+    <ul>
+      <li>Async &amp; you</li>
+    </ul>
+[chunk]
+    <aside>
+      <ul>
+        <li>python</li>
+      </ul>
+    </aside>
+  </body>
+</html>
+```
+
+`yield from` also closes the component right away
+when the response is stopped early, such as when the client disconnects,
+whereas a component that is looped over with `async for`
+is only closed later, by the event loop, after it has been garbage-collected.
+
+Data that does not depend on what was written before can be loaded concurrently,
+for example with {func}`asyncio.gather`,
+and written once all of it has arrived.
+
+When the server hands you a `send` function instead of taking an iterator,
+use an {class}`~hyperscribe.streaming.AsyncDocWriter`
+and call {meth}`~hyperscribe.streaming.AsyncDocWriter.drain` where a chunk should end,
+much like {meth}`asyncio.StreamWriter.drain`.
+Since the template waits for `send`,
+a slow client holds it up instead of letting the buffer grow.
+Templates and their components are plain `async def` functions that drain the same writer,
+so components are simply awaited:
+
+```{testcode} streaming
+async def tag_box(doc: AsyncDocWriter) -> None:
+    await doc.drain()
+    tags = await fetch_tags()
+    with doc.tags.aside:
+        item_list(doc, tags)
+
+
+async def page(doc: AsyncDocWriter) -> None:
+    with layout(doc, "Articles"):
+        doc.tags.h1("Latest")
+        await doc.drain()
+        item_list(doc, await fetch_articles())
+        await tag_box(doc)
+    await doc.drain()
+
+
+async def send(chunk: str) -> None:
+    print(f"[chunk]\n{chunk}", end="")
+
+
+asyncio.run(page(AsyncDocWriter(send)))
+```
+
+```{testoutput} streaming
+[chunk]
+<html lang="en">
+  <head><title>Articles</title></head>
+  <body>
+    <h1>Latest</h1>
+[chunk]
+    <ul>
+      <li>Async &amp; you</li>
+    </ul>
+[chunk]
+    <aside>
+      <ul>
+        <li>python</li>
+      </ul>
+    </aside>
+  </body>
+</html>
+```
+
+For an ASGI application, `send` wraps the body message:
+
+```python
+async def send_text(chunk: str) -> None:
+    await send(
+        {"type": "http.response.body", "body": chunk.encode(), "more_body": True}
+    )
+```
+
+{func}`~hyperscribe.streaming.aiter_chunks` and {class}`~hyperscribe.streaming.AsyncDocWriter`
+work with any event loop, such as asyncio or Trio.
+
+### Timeouts and task groups
+
+A template rendered by {func}`~hyperscribe.streaming.aiter_chunks` is paused at each `yield`
+while its chunk is sent, in the same task.
+A block that limits the task, such as `asyncio.timeout()`,
+an {class}`asyncio.TaskGroup` or a Trio cancel scope,
+would then also cover sending the chunk,
+and if it cancelled, the cancellation would land where the chunk is being sent
+rather than in the template.
+So do not `yield` inside such a block,
+which is a rule for async generators in general ({pep}`789`).
+Waiting inside it is fine, as long as the `yield` comes after it:
+
+```python
+async def page(doc: DocWriter) -> AsyncIterator[None]:
+    with layout(doc, "Articles"):
+        yield
+        async with asyncio.timeout(1):
+            articles = await fetch_articles()
+        item_list(doc, articles)
+```
+
+When a template needs such a block around output that is sent,
+render it with an {class}`~hyperscribe.streaming.AsyncDocWriter` instead.
+There the template sends the chunks itself with `await doc.drain()`,
+so the block covers the sending as well,
+and a timeout raises {exc}`TimeoutError` inside the template as it should.
+
+### Synchronous servers
+
+Synchronous servers, such as WSGI ones, also accept an iterator as a response body.
+{func}`~hyperscribe.streaming.iter_chunks` makes one from a template written as a generator,
+which is split at each bare `yield` like an async generator.
+Here is the same page again, loading its data with blocking calls:
+
+```{testcode} streaming
+import time
+
+
+def load_articles() -> list[str]:
+    time.sleep(0.02)  # a blocking query
+    return ["Async & you"]
+
+
+def load_tags() -> list[str]:
+    time.sleep(0.01)
+    return ["python"]
+
+
+def tag_box(doc: DocWriter) -> Iterator[None]:
+    yield
+    tags = load_tags()
+    with doc.tags.aside:
+        item_list(doc, tags)
+
+
+def page(doc: DocWriter) -> Iterator[None]:
+    with layout(doc, "Articles"):
+        doc.tags.h1("Latest")
+        yield
+        item_list(doc, load_articles())
+        yield from tag_box(doc)
+
+
+for chunk in iter_chunks(page):
+    print(f"[chunk]\n{chunk}", end="")
+```
+
+```{testoutput} streaming
+[chunk]
+<html lang="en">
+  <head><title>Articles</title></head>
+  <body>
+    <h1>Latest</h1>
+[chunk]
+    <ul>
+      <li>Async &amp; you</li>
+    </ul>
+[chunk]
+    <aside>
+      <ul>
+        <li>python</li>
+      </ul>
+    </aside>
+  </body>
+</html>
+```
+
+Unlike async generators, generators can pass on a component's yields with `yield from`.
+A WSGI application encodes the chunks as it returns them:
+
+```python
+def app(environ, start_response):
+    start_response("200 OK", [("Content-Type", "text/html; charset=utf-8")])
+    return (chunk.encode() for chunk in iter_chunks(page))
+```
+
+{func}`~hyperscribe.streaming.aiter_chunks` accepts generator templates as well,
+so one template can be served by synchronous and async servers alike,
+as long as what it waits for does not block an async server for long.
+
+### Out-of-order streaming
+
+Content that comes in order can only be sent once everything before it is ready,
+so one slow query holds up the rest of the page.
+{class}`~hyperscribe.streaming.OutOfOrder` starts loading the content in the background
+and gives you an ID for a placeholder to write in its place.
+The placeholder is any element with that ID,
+holding a loading message, for example.
+Once the rest of the page has been written,
+{meth}`~hyperscribe.streaming.OutOfOrder.resolve` writes each part as soon as it is ready,
+inside a `<template>` with a short script that moves it into its placeholder,
+and yields after each one, so the template can send it on:
+
+```{testcode} streaming
+async def page(doc: DocWriter) -> AsyncIterator[None]:
+    with layout(doc, "Articles"), OutOfOrder(doc) as slots:
+        doc.tags.div("Loading…", id=slots.defer(fetch_articles(), item_list))
+        doc.tags.div("", id=slots.defer(fetch_tags(), item_list))
+        doc.tags.footer("Thanks for reading")
+        yield
+        async for _ in slots.resolve():
+            yield
+
+
+asyncio.run(show(aiter_chunks(page)))
+```
+
+```{testoutput} streaming
+[chunk]
+<html lang="en">
+  <head><title>Articles</title></head>
+  <body>
+    <div id="hyperscribe-slot-1">Loading…</div>
+    <div id="hyperscribe-slot-2"></div>
+    <footer>Thanks for reading</footer>
+[chunk]
+    <template>
+      <ul>
+        <li>python</li>
+      </ul>
+    </template>
+    <script>{let script = document.currentScript;let template = script.previousElementSibling;document.getElementById("hyperscribe-slot-2").replaceWith(template.content);template.remove();script.remove();}</script>
+[chunk]
+    <template>
+      <ul>
+        <li>Async &amp; you</li>
+      </ul>
+    </template>
+    <script>{let script = document.currentScript;let template = script.previousElementSibling;document.getElementById("hyperscribe-slot-1").replaceWith(template.content);template.remove();script.remove();}</script>
+[chunk]
+  </body>
+</html>
+```
+
+The tags were faster, so they were sent first.
+With an {class}`~hyperscribe.streaming.AsyncDocWriter`,
+send each part on with `async for _ in slots.resolve(): await doc.drain()` instead.
+Several parts can wait for the same task, which then loads only once.
+
+The `with` statement cancels the parts still loading
+when the block ends with an exception,
+including when the response is stopped because the client disconnected.
+If the block ends normally while parts have not been resolved,
+they are cancelled as well and a {exc}`RuntimeError` is raised,
+since they would never reach the page.
+Out-of-order streaming starts asyncio tasks, so unlike the rest of the module it needs asyncio.
+
+Parts that are done early do not have to wait for the others.
+{meth}`~hyperscribe.streaming.OutOfOrder.write_completed` writes them right away,
+which is worth it before waiting for something slow that is not deferred:
+
+```python
+with OutOfOrder(doc) as slots:
+    doc.tags.div("Loading…", id=slots.defer(fetch_tags(), item_list))
+    ...
+    if slots.write_completed():  # the tags, if they have arrived
+        yield
+    item_list(doc, await fetch_articles())
+```
+
+The placeholder is replaced as a whole by default.
+Pass `keep=True` to keep the element and replace only its content,
+so that it becomes the parent of what is rendered.
+Since the placeholder is written like any other element,
+it can have any attributes and hold any markup:
+
+```python
+def list_items(doc: DocWriter, items: list[str]) -> None:
+    for item in items:
+        doc.tags.li(escape(item))
+
+
+with t.ul(class_="articles", id=slots.defer(fetch_articles(), list_items, keep=True)):
+    t.li("Loading…")
+```
+
+The ID is a {class}`~hyperscribe.streaming.SlotId`, which is escaped when it is written.
+Each one has to be written exactly once, before its part is,
+which raises a {exc}`RuntimeError` otherwise.
+
+IDs are numbered after a prefix unless {meth}`~hyperscribe.streaming.OutOfOrder.defer` is given an `id`,
+which is then up to you to keep unique within the page.
+On pages with a content security policy,
+pass the policy's `nonce` to {class}`~hyperscribe.streaming.OutOfOrder`.
