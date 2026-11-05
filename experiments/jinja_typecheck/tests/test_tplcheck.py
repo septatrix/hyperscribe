@@ -128,6 +128,9 @@ def run_many(
         + "\nclass RowCtx(TypedDict):\n    user: User\n"
         + "\nclass BaseCtx(TypedDict):\n    active: str\n"
         + "\nclass Profile(TypedDict):\n    name: str\n    email: NotRequired[str]\n"
+        + "\nclass Thing:\n    label: str | None\n    n: int\n"
+        + "\nclass Stats(TypedDict, total=False):\n    count: int\n"
+        + "\nclass GuardCtx(TypedDict):\n    thing: Thing\n    stats: Stats\n"
         + "\nclass OptCtx(TypedDict):\n    profile: Profile\n"
         + "    nickname: NotRequired[str]\n"
     )
@@ -423,3 +426,91 @@ def test_guarded_typo_is_still_reported(
 ) -> None:
     output = opt(tmp_path, monkeypatch, "{% if profile.emial is defined %}x{% endif %}")
     assert 'has no key "emial"' in output
+
+
+def test_filter_registry_uses_the_functions_as_they_are(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    (tmp_path / "myreg.py").write_text(
+        textwrap.dedent(
+            """
+            import jinja2
+
+            def shout_filter(value: str, times: int = 1) -> str:
+                return value.upper() * times
+
+            @jinja2.pass_environment
+            def env_filter(environment: jinja2.Environment, value: str) -> str:
+                return value
+
+            FILTERS = {"shout": shout_filter, "env": env_filter}
+            """
+        )
+    )
+    page = (
+        HEAD
+        + "{{ title|shout(2) }}{{ title|env }}{{ users|shout }}{{ title|shout('x') }}"
+    )
+    config = Config(filters_registry="myreg:FILTERS")
+    output = run_many(tmp_path, {"page.html": page}, monkeypatch, config)
+    # the two bad calls are reported, the pass_environment one is not
+    assert output.count("page.html:4: error") == 2, output
+    assert "env_filter" not in output
+
+
+GUARD = "{# tplcheck\n   context: ctxmod.GuardCtx\n#}\n"
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        "{% if thing.label %}{{ thing.label.upper() }}{% endif %}",
+        "{% if thing.label is not none %}{{ thing.label.upper() }}{% endif %}",
+        "{% if thing.label is none %}-{% else %}{{ thing.label.upper() }}{% endif %}",
+        "{{ thing.label.upper() if thing.label }}",
+        "{{ thing['label'] and thing.label.upper() }}",
+        "{% if 'count' in stats and stats['count'] > 0 %}x{% endif %}",
+        "{% if stats.get('count') %}{{ stats['count'] + 1 }}{% endif %}",
+        "{% if 'count' not in stats %}-{% else %}{{ stats.count + 1 }}{% endif %}",
+    ],
+)
+def test_truthiness_none_and_in_tests_narrow_member_accesses(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, body: str
+) -> None:
+    output = run_many(tmp_path, {"page.html": GUARD + body}, monkeypatch)
+    assert output.startswith("Success"), output
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        "{{ thing.label.upper() }}",
+        "{% if thing.n %}{{ thing.label.upper() }}{% endif %}",
+        "{% if thing.label is none %}{{ thing.label.upper() }}{% endif %}",
+        "{{ stats['count'] + 1 }}",
+        "{% if 'count' in stats %}{% endif %}{{ stats['count'] + 1 }}",
+    ],
+)
+def test_unguarded_optional_accesses_are_reported(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, body: str
+) -> None:
+    output = run_many(tmp_path, {"page.html": GUARD + body}, monkeypatch)
+    assert "page.html:4: error" in output, output
+
+
+def test_imports_fill_the_importee_from_the_importers_context(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The importer's context may have extra keys and a different required-ness
+    # than the library's: only the keys the library declares are handed over.
+    lib = (
+        "{# tplcheck\n   context: ctxmod.Profile\n#}\n"
+        "{% macro hello() %}{{ name }}{% endmacro %}"
+    )
+    page = (
+        "{# tplcheck\n   context: ctxmod.OptCtx\n#}\n"
+        "{% import 'lib.html' as lib with context %}{{ lib.hello() }}"
+    )
+    output = run_many(tmp_path, {"lib.html": lib, "page.html": page}, monkeypatch)
+    # `name` is a key of the library's context that the page does not provide
+    assert 'Missing key "name"' in output

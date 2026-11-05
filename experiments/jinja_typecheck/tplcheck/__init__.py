@@ -8,7 +8,7 @@ so the bodies are stubs and the signatures are what matters.
 from __future__ import annotations
 
 from collections.abc import Callable, Iterable, Iterator
-from typing import Any, Generic, TypedDict, TypeVar
+from typing import Any, Generic, Literal, TypedDict, TypeVar
 
 from jinja2 import Undefined as Undefined
 from markupsafe import Markup
@@ -53,15 +53,21 @@ def loop_(iterable: Iterable[T]) -> Loop[T]:
     raise NotImplementedError
 
 
-def getattr_(obj: object, name: str, defined: bool = False) -> Any:
+def getattr_(
+    obj: object,
+    name: str,
+    narrowed: Literal["defined", "notnone", "truthy"] | None = None,
+) -> Any:
     """Jinja's ``obj.name``: attribute access, falling back to item access.
 
     The mypy plugin (``tplcheck.mypy_plugin``) replaces this return type
     with the precise type of the member.
     Without the plugin every attribute access is ``Any``.
 
-    ``defined=True`` is emitted where an ``is defined`` test guards the access:
-    optional (``NotRequired``) keys are then not ``Undefined``.
+    ``narrowed`` is emitted where a surrounding test vouches for the access
+    (``is defined`` / ``'k' in d``: not ``UndefinedValue``;
+    ``is not none``: not ``None``; a truthiness test or ``d.get('k')``: neither).
+    mypy cannot narrow call expressions itself, so the plugin does it.
     """
     raise NotImplementedError
 

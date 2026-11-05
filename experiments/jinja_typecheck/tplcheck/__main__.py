@@ -32,6 +32,13 @@ def main() -> int:
     parser.add_argument("--tests-module", help="typed stand-ins for custom tests")
     parser.add_argument("--globals-module", help="typed stand-ins for custom globals")
     parser.add_argument(
+        "--filters-registry",
+        help="module:NAME of the dict of the project's filters (name -> function)",
+    )
+    parser.add_argument(
+        "--tests-registry", help="module:NAME of the dict of the project's tests"
+    )
+    parser.add_argument(
         "--coverage",
         action="store_true",
         help="only report which templates can be translated, annotated or not",
@@ -42,6 +49,8 @@ def main() -> int:
         environment_factory=args.environment_factory,
         filters_module=args.filters_module,
         tests_module=args.tests_module,
+        filters_registry=args.filters_registry,
+        tests_registry=args.tests_registry,
         globals_module=args.globals_module,
     )
     if args.coverage:

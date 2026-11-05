@@ -79,6 +79,10 @@ mypy reports one error in them (a project `gettext` that returns a non-`str`).
   and a macro that uses `caller`, `varargs` or `kwargs` gets matching parameters.
   `caller` is optional if the macro tests it (`{% if caller %}`), else required.
   Top-level `set` and `import` are attributes of that class too.
+- **`self-name: util`** in the header makes `util` refer to the template's own
+  macros inside it.
+  Libraries such as cdedb2's `util.tmpl` call `util.other_macro()` on themselves,
+  which works in Jinja only because the importer happened to import them as `util`.
 - **`call` blocks** become a nested function passed as `caller=`;
   its parameters are `Any`.
 - **`extends`:** the parent's declared context is filled from the child's context
@@ -87,10 +91,19 @@ mypy reports one error in them (a project `gettext` that returns a non-`str`).
 - **`include`:** filled from the context and the local variables in scope.
   `without context` passes nothing, `ignore missing` skips unknown templates.
 - **i18n:** `{% trans %}`, `gettext`, `ngettext`, `_`, … with the extension enabled.
+- **Narrowing** follows the template's own checks, because mypy cannot narrow
+  the member accesses the shadow code is made of:
+  `is defined` / `'k' in d` (optional TypedDict keys are `UndefinedValue`
+  until then), `is not none`, plain truthiness and `d.get('k')` (drop `None`),
+  in `if`/`elif`/`else`, conditional expressions and `and`/`or`.
+  Bare context variables narrow natively.
 - **Tests narrow types** (`is none`, `is string`, `is mapping`, …) through `TypeIs`.
 - Filters (~50), tests (~30) and globals have typed stand-ins in `tplcheck/`.
   A project's own come from modules given with
-  `--filters-module`, `--tests-module` and `--globals-module`;
+  `--filters-module`, `--tests-module` and `--globals-module`,
+  or, if it already has typed filter functions, from its registry dict with
+  `--filters-registry module:NAME` (functions are used as they are,
+  `@pass_environment` & co. included);
   those win over the builtin ones, like `Environment.filters.update()`.
 - Extensions and a custom Environment (delimiters, policies, …) are configured with
   `--extension` and `--environment-factory module:function`.
@@ -107,3 +120,48 @@ Context TypedDicts are imported while generating, so they must be importable.
 
 Run the tests with
 `PYTHONPATH=experiments/jinja_typecheck pytest experiments/jinja_typecheck/tests`.
+
+## Case study: cdedb2's index page
+
+`examples/cdedb2/` type-checks four real templates of
+[cdedb2](https://github.com/cde-ev/cdedb2) --
+`web/core/index.tmpl`, the two base templates it extends and the 1200-line
+`web/util.tmpl` macro library it imports --
+without vendoring them: `prepare.py` copies them from a checkout and adds the
+headers, which live in `prepare.py`.
+`make check-cdedb2 CDEDB2=/path/to/cdedb2` runs it.
+
+The contexts in `cdedb_ctx.py` follow `AbstractFrontend.fill_template`
+(what every template gets), `render` and `CoreFrontend.index`;
+`cdedb_filters.py` mirrors the signatures in `cdedb/filter.py`
+(cdedb2 itself would point `--filters-registry` at `cdedb.filter:JINJA_FILTERS`)
+and `cdedb_globals.py` what the constructor puts into `Environment.globals`.
+
+It reports four things in the unmodified templates:
+
+- `util.tmpl` passes `defaultvalue` to a macro in `form_input_file`,
+  but that macro has no such parameter or variable --
+  it passes Jinja's `Undefined`, which is probably harmless but looks unintended.
+- `util.tmpl:709` reads `value` in `input_select`, which is nowhere defined
+  (the line above computes `former_value`), so the sanity check
+  `{% if value in ("", none) and defaultvalue %}` can never fire.
+- `base.tmpl:227` calls `mls_with_defect_explicits.items()` inside
+  `{% if defect_username or mls_with_defect_explicits %}`.
+  This is correct only because `transform_defect_addresses` returns either
+  two `None`s or two values; the checker cannot know and the context would
+  have to say so (a pair, or a single optional object).
+
+(The first two are what I read them as; I have not run them against a
+database or asked the maintainers.)
+Typing the index page's `dashboard` needed one assumption.
+`CoreFrontend.index` adds `orga`, `orga_registrations` and `present`
+(likewise `moderator`, `events`, …) only when there is something to show,
+and the template relies on them coming together.
+A type checker cannot see that, so the case study types the dashboard as if
+`index` started from empty defaults; the `{% if dashboard.get('orga') %}` guards
+in the template then keep working unchanged.
+
+`mutations.py` applies twelve realistic mistakes one at a time
+(attribute and key typos, an optional value used without its guard,
+a wrong keyword for a macro or a filter, a renamed library macro, ...)
+and checks that each produces a new finding: all twelve do.

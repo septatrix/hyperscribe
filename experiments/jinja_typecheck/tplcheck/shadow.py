@@ -99,6 +99,10 @@ class TemplateInfo:
     context: str | None
 
 
+#: (object expression, member name, what a surrounding test established):
+#: "defined" (not Undefined), "notnone" (not None) or "truthy" (both).
+Guard = tuple[str, str, str]
+
 # Names the generated code uses itself; a macro parameter must not shadow them.
 RESERVED = frozenset(
     {
@@ -138,6 +142,11 @@ class Config:
     #: Modules with typed stand-ins for the project's own filters/tests/globals.
     filters_module: str | None = None
     tests_module: str | None = None
+    #: ``module:NAME`` of a dict mapping filter/test names to the functions that
+    #: implement them (what a project passes to ``Environment.filters.update``).
+    #: Those functions are used as they are, so their own annotations are checked.
+    filters_registry: str | None = None
+    tests_registry: str | None = None
     globals_module: str | None = None
     #: Translate templates without a header too, with an untyped (Any) context.
     lenient: bool = False
@@ -148,6 +157,27 @@ class Header:
     context: str | None = None
     imports: list[str] = field(default_factory=list)
     macros: dict[str, ast.arguments] = field(default_factory=dict)
+    #: Name under which this template's own macros are visible inside it.
+    self_name: str | None = None
+
+
+def python_name(name: str) -> str:
+    """A Jinja filter/test/global name as an attribute of the stand-in modules."""
+    py = RENAMED.get(name, name)
+    return f"{py}_" if keyword.iskeyword(py) else py
+
+
+def load_registry(spec: str | None) -> dict[str, object]:
+    if not spec:
+        return {}
+    module, _, name = spec.partition(":")
+    registry = getattr(importlib.import_module(module), name)
+    return dict(registry)
+
+
+def provides(module: object, name: str) -> bool:
+    """Whether a stand-in module defines ``name`` (also if only annotated)."""
+    return hasattr(module, name) or name in getattr(module, "__annotations__", {})
 
 
 def parse_header(source: str) -> Header | None:
@@ -162,6 +192,8 @@ def parse_header(source: str) -> Header | None:
             continue
         if line.startswith("context:"):
             header.context = line.removeprefix("context:").strip()
+        elif line.startswith("self-name:"):
+            header.self_name = line.removeprefix("self-name:").strip()
         elif line.startswith(("import ", "from ")):
             header.imports.append(line)
         elif line.startswith("macro "):
@@ -226,7 +258,11 @@ class Emitter:
         self.ctx_keys = context_keys(header.context)
         self.has_extends = any(isinstance(n, nodes.Extends) for n in self.tree.body)
         # Member accesses an `is defined` test currently vouches for.
-        self.guarded: set[tuple[str, str]] = set()
+        self.guarded: set[Guard] = set()
+        self.registries = {
+            "filters": load_registry(config.filters_registry),
+            "tests": load_registry(config.tests_registry),
+        }
         self.custom = {
             kind: importlib.import_module(module) if module else None
             for kind, module in (
@@ -265,6 +301,8 @@ class Emitter:
         for scope in reversed(self.scopes):
             if name in scope:
                 return scope[name]
+        if name == self.header.self_name and name not in self.exports:
+            return self.exports_ref
         if name in self.exports:
             return f"{self.exports_ref}.{name}"
         return None
@@ -434,8 +472,12 @@ class Emitter:
         info = self.target(node.template, "import")
         if info is None:
             return "anything_"
-        argument = self.ctx_expr if node.with_context else "{}"
-        return f"tpl_{info.module}.Macros({argument})"
+        # `with context` hands over the importer's whole context; the imported
+        # template only needs (and the literal only fills) the keys it declares.
+        literal = "{}"
+        if node.with_context:
+            literal = self.context_literal(info, locals_=False, lineno=node.lineno)
+        return f"tpl_{info.module}.Macros({literal})"
 
     def stmt_Import(self, node: nodes.Import) -> None:
         value = self.import_value(node)
@@ -494,16 +536,14 @@ class Emitter:
                 # The branches may assign different types, so don't pin one.
                 self.line(f"{py}: Any", node.lineno)
 
-        def branch(
-            body: list[nodes.Node], lineno: int, keys: set[tuple[str, str]]
-        ) -> None:
+        def branch(body: list[nodes.Node], lineno: int, keys: set[Guard]) -> None:
             self.scopes.append(Scope(shared))
             with self.guarded_by(keys):
                 self.suite(body, lineno)
             self.scopes.pop()
 
         # What earlier tests being false says about later branches.
-        outside: set[tuple[str, str]] = set()
+        outside: set[Guard] = set()
         true, false = self.guards(node.test)
         self.line(f"if {self.expr(node.test)}:", node.lineno)
         branch(node.body, node.lineno, true)
@@ -767,10 +807,11 @@ class Emitter:
             return py
         custom_globals = self.custom["globals"]
         if node.name not in self.ctx_keys:
-            if custom_globals is not None and hasattr(custom_globals, node.name):
-                return f"cg.{node.name}"
+            py = python_name(node.name)
+            if custom_globals is not None and provides(custom_globals, py):
+                return f"cg.{py}"
             if node.name in GLOBALS:
-                return f"g.{node.name}"
+                return f"g.{py}"
         if node.name == "super":
             return "super_"
         if node.name == "self":
@@ -784,9 +825,14 @@ class Emitter:
         return f"Markup({self.expr(node.expr)})"
 
     def member_access(self, obj: str, attr: str) -> str:
-        if (obj, attr) in self.guarded:
-            return f"getattr_({obj}, {attr!r}, True)"
-        return f"getattr_({obj}, {attr!r})"
+        kinds = {kind for o, a, kind in self.guarded if (o, a) == (obj, attr)}
+        if not kinds:
+            return f"getattr_({obj}, {attr!r})"
+        if "truthy" in kinds or kinds >= {"defined", "notnone"}:
+            narrowed = "truthy"
+        else:
+            narrowed = next(iter(kinds))
+        return f"getattr_({obj}, {attr!r}, {narrowed!r})"
 
     def expr_Getattr(self, node: nodes.Getattr) -> str:
         return self.member_access(self.expr(node.node), node.attr)
@@ -824,18 +870,35 @@ class Emitter:
     def expr_Call(self, node: nodes.Call) -> str:
         return f"{self.expr(node.node)}({', '.join(self.arguments(node))})"
 
-    def member(self, kind: str, alias: str, builtin: str, name: str) -> str:
-        py = RENAMED.get(name, name)
+    def member(self, kind: str, alias: str, builtin: str, name: str) -> Guard:
+        """The Python callable for a filter/test, plus a leading argument if any."""
+        function = self.registries[kind].get(name)
+        function_name = getattr(function, "__name__", "<lambda>")
+        if function is not None and function_name.isidentifier():
+            module = function.__module__
+            ident = re.sub(r"\W", "_", module)
+            registry_alias = f"reg_{ident}"
+            if (line := f"import {module} as {registry_alias}") not in self.imports:
+                self.imports.append(line)
+            # @pass_environment & co.: Jinja supplies the first argument itself
+            extra = "anything_" if getattr(function, "jinja_pass_arg", None) else ""
+            return f"{registry_alias}.{function_name}", extra
+        py = python_name(name)
         custom = self.custom[kind]
-        if custom is not None and hasattr(custom, py):
-            return f"c{alias}.{py}"
-        return f"{builtin}.{py}"
+        if custom is not None and provides(custom, py):
+            return f"c{alias}.{py}", ""
+        return f"{builtin}.{py}", ""
 
     def expr_Filter(self, node: nodes.Filter) -> str:
         if node.node is None:
             raise UnsupportedError("filter blocks are not supported", node.lineno)
-        args = [self.expr(node.node), *self.arguments(node)]
-        return f"{self.member('filters', 'f', 'f', node.name)}({', '.join(args)})"
+        callee, extra = self.member("filters", "f", "f", node.name)
+        args = [
+            *([extra] if extra else []),
+            self.expr(node.node),
+            *self.arguments(node),
+        ]
+        return f"{callee}({', '.join(args)})"
 
     def context_key(self, node: nodes.Node) -> str | None:
         """The context variable a bare name refers to, if it is one."""
@@ -858,14 +921,23 @@ class Emitter:
             return self.expr(node.node), node.arg.value
         return None
 
-    def guards(
-        self, test: nodes.Node
-    ) -> tuple[set[tuple[str, str]], set[tuple[str, str]]]:
-        """Accesses that are defined when ``test`` is true / when it is false."""
-        if isinstance(test, nodes.Test) and test.name in ("defined", "undefined"):
+    def guards(self, test: nodes.Node) -> tuple[set[Guard], set[Guard]]:
+        """What a test establishes about member accesses.
+
+        Returns the guards that hold in the branch where ``test`` is true
+        and the ones that hold where it is false.
+        """
+        if isinstance(test, nodes.Test):
             key = self.guard_key(test.node)
-            keys = {key} if key else set()
-            return (keys, set()) if test.name == "defined" else (set(), keys)
+            if key is None:
+                return set(), set()
+            if test.name == "defined":
+                return {(*key, "defined")}, set()
+            if test.name == "undefined":
+                return set(), {(*key, "defined")}
+            if test.name == "none":
+                return set(), {(*key, "notnone")}
+            return set(), set()
         if isinstance(test, nodes.Not):
             true, false = self.guards(test.node)
             return false, true
@@ -875,10 +947,32 @@ class Emitter:
         if isinstance(test, nodes.Or):
             (_, lf), (_, rf) = self.guards(test.left), self.guards(test.right)
             return set(), lf | rf
+        if (
+            isinstance(test, nodes.Compare)
+            and len(test.ops) == 1
+            and test.ops[0].op in ("in", "notin")
+            and isinstance(test.expr, nodes.Const)
+            and isinstance(test.expr.value, str)
+        ):
+            guard = {(self.expr(test.ops[0].expr), test.expr.value, "defined")}
+            return (guard, set()) if test.ops[0].op == "in" else (set(), guard)
+        if (
+            isinstance(test, nodes.Call)
+            and isinstance(test.node, nodes.Getattr)
+            and test.node.attr == "get"
+            and test.args
+            and isinstance(test.args[0], nodes.Const)
+            and isinstance(test.args[0].value, str)
+        ):
+            # `d.get('k')` is only truthy if the key is there (and not None)
+            return {(self.expr(test.node.node), test.args[0].value, "truthy")}, set()
+        key = self.guard_key(test)  # truthiness of a member access
+        if key is not None:
+            return {(*key, "truthy")}, set()
         return set(), set()
 
     @contextlib.contextmanager
-    def guarded_by(self, keys: set[tuple[str, str]]) -> Iterator[None]:
+    def guarded_by(self, keys: set[Guard]) -> Iterator[None]:
         saved = self.guarded
         self.guarded = saved | keys
         try:
@@ -892,8 +986,13 @@ class Emitter:
             # mypy narrows TypedDicts on `in`, which makes optional keys readable.
             operator = "in" if node.name == "defined" else "not in"
             return f"({key!r} {operator} {self.ctx_expr})"
-        args = [self.expr(node.node), *self.arguments(node)]
-        return f"{self.member('tests', 't', 't', node.name)}({', '.join(args)})"
+        callee, extra = self.member("tests", "t", "t", node.name)
+        args = [
+            *([extra] if extra else []),
+            self.expr(node.node),
+            *self.arguments(node),
+        ]
+        return f"{callee}({', '.join(args)})"
 
     def expr_CondExpr(self, node: nodes.CondExpr) -> str:
         true, false = self.guards(node.test)
