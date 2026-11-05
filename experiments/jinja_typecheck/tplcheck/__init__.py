@@ -10,11 +10,19 @@ from __future__ import annotations
 from collections.abc import Callable, Iterable, Iterator
 from typing import Any, Generic, TypedDict, TypeVar
 
-from jinja2 import Undefined
+from jinja2 import Undefined as Undefined
 from markupsafe import Markup
 
 T = TypeVar("T")
 U = TypeVar("U")
+
+
+class UndefinedValue:
+    """What an optional context key reads as when it is missing.
+
+    Unlike ``jinja2.Undefined`` it has no ``__getattr__``, so using the value
+    without an ``is defined`` check (``user.email.upper()``) is an error.
+    """
 
 
 class NoContext(TypedDict):
@@ -45,12 +53,15 @@ def loop_(iterable: Iterable[T]) -> Loop[T]:
     raise NotImplementedError
 
 
-def getattr_(obj: object, name: str) -> Any:
+def getattr_(obj: object, name: str, defined: bool = False) -> Any:
     """Jinja's ``obj.name``: attribute access, falling back to item access.
 
     The mypy plugin (``tplcheck.mypy_plugin``) replaces this return type
     with the precise type of the member.
     Without the plugin every attribute access is ``Any``.
+
+    ``defined=True`` is emitted where an ``is defined`` test guards the access:
+    optional (``NotRequired``) keys are then not ``Undefined``.
     """
     raise NotImplementedError
 

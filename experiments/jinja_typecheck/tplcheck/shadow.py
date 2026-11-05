@@ -22,10 +22,11 @@ A template opts in with a leading comment::
 from __future__ import annotations
 
 import ast
+import contextlib
 import importlib
 import keyword
 import re
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
 from dataclasses import dataclass, field
 
 from jinja2 import Environment, nodes
@@ -224,6 +225,8 @@ class Emitter:
         self.imports: list[str] = []
         self.ctx_keys = context_keys(header.context)
         self.has_extends = any(isinstance(n, nodes.Extends) for n in self.tree.body)
+        # Member accesses an `is defined` test currently vouches for.
+        self.guarded: set[tuple[str, str]] = set()
         self.custom = {
             kind: importlib.import_module(module) if module else None
             for kind, module in (
@@ -491,19 +494,29 @@ class Emitter:
                 # The branches may assign different types, so don't pin one.
                 self.line(f"{py}: Any", node.lineno)
 
-        def branch(body: list[nodes.Node], lineno: int) -> None:
+        def branch(
+            body: list[nodes.Node], lineno: int, keys: set[tuple[str, str]]
+        ) -> None:
             self.scopes.append(Scope(shared))
-            self.suite(body, lineno)
+            with self.guarded_by(keys):
+                self.suite(body, lineno)
             self.scopes.pop()
 
+        # What earlier tests being false says about later branches.
+        outside: set[tuple[str, str]] = set()
+        true, false = self.guards(node.test)
         self.line(f"if {self.expr(node.test)}:", node.lineno)
-        branch(node.body, node.lineno)
+        branch(node.body, node.lineno, true)
+        outside |= false
         for elif_ in node.elif_:
-            self.line(f"elif {self.expr(elif_.test)}:", elif_.lineno)
-            branch(elif_.body, elif_.lineno)
+            with self.guarded_by(outside):
+                self.line(f"elif {self.expr(elif_.test)}:", elif_.lineno)
+            true, false = self.guards(elif_.test)
+            branch(elif_.body, elif_.lineno, outside | true)
+            outside |= false
         if node.else_:
             self.line("else:", node.lineno)
-            branch(node.else_, node.lineno)
+            branch(node.else_, node.lineno, outside)
         self.scopes[-1].update(shared)
 
     def stmt_For(self, node: nodes.For) -> None:
@@ -770,13 +783,18 @@ class Emitter:
     def expr_MarkSafe(self, node: nodes.MarkSafe) -> str:
         return f"Markup({self.expr(node.expr)})"
 
+    def member_access(self, obj: str, attr: str) -> str:
+        if (obj, attr) in self.guarded:
+            return f"getattr_({obj}, {attr!r}, True)"
+        return f"getattr_({obj}, {attr!r})"
+
     def expr_Getattr(self, node: nodes.Getattr) -> str:
-        return f"getattr_({self.expr(node.node)}, {node.attr!r})"
+        return self.member_access(self.expr(node.node), node.attr)
 
     def expr_Getitem(self, node: nodes.Getitem) -> str:
         obj = self.expr(node.node)
         if isinstance(node.arg, nodes.Const) and isinstance(node.arg.value, str):
-            return f"getattr_({obj}, {node.arg.value!r})"
+            return self.member_access(obj, node.arg.value)
         if isinstance(node.arg, nodes.Slice):
             parts = [
                 self.expr(p) if p is not None else ""
@@ -819,13 +837,74 @@ class Emitter:
         args = [self.expr(node.node), *self.arguments(node)]
         return f"{self.member('filters', 'f', 'f', node.name)}({', '.join(args)})"
 
+    def context_key(self, node: nodes.Node) -> str | None:
+        """The context variable a bare name refers to, if it is one."""
+        if (
+            isinstance(node, nodes.Name)
+            and self.lookup(node.name) is None
+            and node.name in self.ctx_keys
+        ):
+            return node.name
+        return None
+
+    def guard_key(self, node: nodes.Node) -> tuple[str, str] | None:
+        if isinstance(node, nodes.Getattr):
+            return self.expr(node.node), node.attr
+        if (
+            isinstance(node, nodes.Getitem)
+            and isinstance(node.arg, nodes.Const)
+            and isinstance(node.arg.value, str)
+        ):
+            return self.expr(node.node), node.arg.value
+        return None
+
+    def guards(
+        self, test: nodes.Node
+    ) -> tuple[set[tuple[str, str]], set[tuple[str, str]]]:
+        """Accesses that are defined when ``test`` is true / when it is false."""
+        if isinstance(test, nodes.Test) and test.name in ("defined", "undefined"):
+            key = self.guard_key(test.node)
+            keys = {key} if key else set()
+            return (keys, set()) if test.name == "defined" else (set(), keys)
+        if isinstance(test, nodes.Not):
+            true, false = self.guards(test.node)
+            return false, true
+        if isinstance(test, nodes.And):
+            (lt, _), (rt, _) = self.guards(test.left), self.guards(test.right)
+            return lt | rt, set()
+        if isinstance(test, nodes.Or):
+            (_, lf), (_, rf) = self.guards(test.left), self.guards(test.right)
+            return set(), lf | rf
+        return set(), set()
+
+    @contextlib.contextmanager
+    def guarded_by(self, keys: set[tuple[str, str]]) -> Iterator[None]:
+        saved = self.guarded
+        self.guarded = saved | keys
+        try:
+            yield
+        finally:
+            self.guarded = saved
+
     def expr_Test(self, node: nodes.Test) -> str:
+        key = self.context_key(node.node)
+        if key is not None and node.name in ("defined", "undefined"):
+            # mypy narrows TypedDicts on `in`, which makes optional keys readable.
+            operator = "in" if node.name == "defined" else "not in"
+            return f"({key!r} {operator} {self.ctx_expr})"
         args = [self.expr(node.node), *self.arguments(node)]
         return f"{self.member('tests', 't', 't', node.name)}({', '.join(args)})"
 
     def expr_CondExpr(self, node: nodes.CondExpr) -> str:
-        otherwise = self.expr(node.expr2) if node.expr2 is not None else "undefined_()"
-        return f"({self.expr(node.expr1)} if {self.expr(node.test)} else {otherwise})"
+        true, false = self.guards(node.test)
+        test = self.expr(node.test)
+        with self.guarded_by(true):
+            value = self.expr(node.expr1)
+        with self.guarded_by(false):
+            otherwise = (
+                self.expr(node.expr2) if node.expr2 is not None else "undefined_()"
+            )
+        return f"({value} if {test} else {otherwise})"
 
     def expr_Not(self, node: nodes.Not) -> str:
         return f"(not {self.expr(node.node)})"
@@ -837,10 +916,14 @@ class Emitter:
         return f"(+{self.expr(node.node)})"
 
     def expr_And(self, node: nodes.And) -> str:
-        return f"({self.expr(node.left)} and {self.expr(node.right)})"
+        left = self.expr(node.left)
+        with self.guarded_by(self.guards(node.left)[0]):
+            return f"({left} and {self.expr(node.right)})"
 
     def expr_Or(self, node: nodes.Or) -> str:
-        return f"({self.expr(node.left)} or {self.expr(node.right)})"
+        left = self.expr(node.left)
+        with self.guarded_by(self.guards(node.left)[1]):
+            return f"({left} or {self.expr(node.right)})"
 
     def expr_Compare(self, node: nodes.Compare) -> str:
         parts = [self.expr(node.expr)]

@@ -14,6 +14,7 @@ CONFIG = Path(__file__).parents[1] / "mypy.ini"
 
 CONTEXT = """
 from typing import TypedDict
+from typing_extensions import NotRequired
 
 class User(TypedDict):
     name: str
@@ -126,6 +127,9 @@ def run_many(
         + "\nclass TitleOnly(TypedDict):\n    title: str\n"
         + "\nclass RowCtx(TypedDict):\n    user: User\n"
         + "\nclass BaseCtx(TypedDict):\n    active: str\n"
+        + "\nclass Profile(TypedDict):\n    name: str\n    email: NotRequired[str]\n"
+        + "\nclass OptCtx(TypedDict):\n    profile: Profile\n"
+        + "    nickname: NotRequired[str]\n"
     )
     templates = tmp_path / "templates"
     templates.mkdir(exist_ok=True)
@@ -363,3 +367,59 @@ def test_is_tests_narrow_types(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
     page = HEAD + "{% if title is string %}{{ title.upper() }}{% endif %}"
     output = run_many(tmp_path, {"page.html": page}, monkeypatch)
     assert output.startswith("Success"), output
+
+
+OPT = "{# tplcheck\n   context: ctxmod.OptCtx\n#}\n"
+
+
+def opt(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, body: str) -> str:
+    return run_many(tmp_path, {"page.html": OPT + body}, monkeypatch)
+
+
+def test_optional_key_is_undefined_unless_guarded(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    output = opt(tmp_path, monkeypatch, "{{ profile.email.upper() }}")
+    assert "page.html:4: error" in output
+    assert "Undefined" in output
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        "{% if profile.email is defined %}{{ profile.email.upper() }}{% endif %}",
+        "{% if profile.email is undefined %}-{% else %}"
+        "{{ profile.email.upper() }}{% endif %}",
+        "{% if profile.email is not defined %}-{% elif profile.name %}"
+        "{{ profile.email.upper() }}{% endif %}",
+        "{{ profile.email.upper() if profile.email is defined }}",
+        "{{ profile.email is defined and profile.email.upper() }}",
+        "{{ profile.email is undefined or profile.email.upper() }}",
+        "{% if profile.name and profile['email'] is defined %}"
+        "{{ profile['email'].upper() }}{% endif %}",
+        "{% if nickname is defined %}{{ nickname.upper() }}{% endif %}",
+    ],
+)
+def test_is_defined_narrows(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, body: str
+) -> None:
+    output = opt(tmp_path, monkeypatch, body)
+    assert output.startswith("Success"), output
+
+
+def test_is_defined_does_not_leak_out_of_its_branch(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    body = (
+        "{% if profile.email is defined %}{% endif %}{{ profile.email.upper() }}"
+        "{% if profile.email is undefined %}{{ profile.email.upper() }}{% endif %}"
+    )
+    output = opt(tmp_path, monkeypatch, body)
+    assert output.count("error:") == 2, output
+
+
+def test_guarded_typo_is_still_reported(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    output = opt(tmp_path, monkeypatch, "{% if profile.emial is defined %}x{% endif %}")
+    assert 'has no key "emial"' in output
