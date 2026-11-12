@@ -39,6 +39,10 @@ def main() -> int:
         "--tests-registry", help="module:NAME of the dict of the project's tests"
     )
     parser.add_argument(
+        "--contexts-module",
+        help="module with TEMPLATE_CONTEXTS, from `python -m tplcheck.collect`",
+    )
+    parser.add_argument(
         "--coverage",
         action="store_true",
         help="only report which templates can be translated, annotated or not",
@@ -51,6 +55,7 @@ def main() -> int:
         tests_module=args.tests_module,
         filters_registry=args.filters_registry,
         tests_registry=args.tests_registry,
+        contexts_module=args.contexts_module,
         globals_module=args.globals_module,
     )
     if args.coverage:

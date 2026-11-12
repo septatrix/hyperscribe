@@ -3,15 +3,14 @@
 from __future__ import annotations
 
 import importlib
-import os
 import re
-import sys
 from dataclasses import dataclass, replace
 from pathlib import Path
 
 from jinja2 import TemplateSyntaxError
 from mypy import api
 
+from .contexts import add_import_paths
 from .shadow import (
     Config,
     TemplateInfo,
@@ -53,15 +52,12 @@ def generate(
     shadow_dir.mkdir(parents=True, exist_ok=True)
     for stale in shadow_dir.glob("*.py"):
         stale.unlink()
-    # Contexts are TypedDicts defined in the project, so they have to be importable.
-    # Explicit MYPYPATH entries win over whatever is already on sys.path.
-    for entry in reversed(
-        [os.getcwd(), *filter(None, os.environ.get("MYPYPATH", "").split(":"))]
-    ):
-        if entry in sys.path:
-            sys.path.remove(entry)
-        sys.path.insert(0, entry)
-    importlib.invalidate_caches()
+    add_import_paths()
+    contexts: dict[str, str] = {}
+    if config.contexts_module:
+        contexts = dict(
+            importlib.import_module(config.contexts_module).TEMPLATE_CONTEXTS
+        )
     annotated: dict[str, tuple[Path, str, TemplateInfo]] = {}
     for path in sorted(templates.rglob("*")):
         if path.suffix not in SUFFIXES:
@@ -69,8 +65,9 @@ def generate(
         name = path.relative_to(templates).as_posix()
         source = path.read_text(encoding="utf-8")
         header = parse_header(source)
-        if header is not None or config.lenient:
-            context = header.context if header is not None else None
+        generated = contexts.get(name)
+        if header is not None or generated or config.lenient:
+            context = (header.context if header is not None else None) or generated
             info = TemplateInfo(_identifier(name), context)
             annotated[name] = (path, source, info)
     infos = {name: info for name, (_, _, info) in annotated.items()}
@@ -79,7 +76,9 @@ def generate(
     registry: list[tuple[str, str]] = []
     for name, (path, source, info) in annotated.items():
         try:
-            code = translate(source, str(path), environment, infos, config)
+            code = translate(
+                source, str(path), environment, infos, config, contexts.get(name)
+            )
         except UnsupportedError as error:
             problems.append(f"{path}:{error.lineno}: error: {error.what} [tplcheck]")
             continue

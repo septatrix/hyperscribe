@@ -33,6 +33,50 @@ templates/articles.jinja2:30: error: TypedDict "Item" has no key "titel"  [misc]
 templates/articles.jinja2:22: error: TypedDict "ArticlesContext" has no key "topics"  [typeddict-item]
 ```
 
+## Contexts from `render()` calls
+
+Writing a context TypedDict per template by hand does not scale, and the
+information is already in the Python code that renders it:
+
+```python
+return self.render(rs, "index", {"meta_info": meta_info, "dashboard": dashboard})
+```
+
+`python -m tplcheck.collect` runs mypy with a plugin that watches calls of one
+render function or method (`--render pkg.mod.Class.render`; subclasses count).
+For each call with a literal template name and a dict literal it records the
+keys and the types mypy infers for the values, as importable annotations
+(a value is typed on its own, so `[Row()]` is `list[Row]`, not `list[Any]`).
+Calls that render the same template are merged:
+keys passed at every call are required, the others `NotRequired`,
+and differing value types become a union.
+The output is a module of TypedDicts (optionally extending `--base-context`,
+for what a framework adds to every template) and `TEMPLATE_CONTEXTS`,
+which `python -m tplcheck --contexts-module` reads.
+A template listed there needs no `context:` line in its header (a header still wins).
+
+```console
+$ python -m tplcheck.collect --render app.base.Frontend.render \
+      --module app.contexts --out app/contexts.py -- app/
+$ python -m tplcheck templates/ --contexts-module app.contexts --config-file mypy.ini
+```
+
+Templates rendered with a variable instead of a dict literal
+(`params = {...}; params["x"] = ...; self.render(rs, "t", params)`)
+or with a computed name cannot be read this way:
+the former get a TypedDict without keys and are left out of `TEMPLATE_CONTEXTS`
+(listed in the output; `--include-incomplete` maps them anyway),
+the latter are skipped.
+`--mapper module:function` turns (module, class, name) into the template path
+the loader uses, for projects where the realm is part of the path.
+The generated module imports its types under `TYPE_CHECKING`,
+so generating and importing it needs none of the project's dependencies.
+
+The generated types are exactly as precise as the call sites:
+a `dict[str, Any]` argument stays a `dict[str, Any]`.
+Where that is too loose, make the Python side more precise
+(a TypedDict instead of a plain dict) and regenerate.
+
 ## Why not patch Jinja's compiled output?
 
 It is all `Any`: `resolve('user')`, `environment.getattr(...)`,
@@ -129,23 +173,39 @@ Run the tests with
 `web/util.tmpl` macro library it imports --
 without vendoring them: `prepare.py` copies them from a checkout and adds the
 headers, which live in `prepare.py`.
-`make check-cdedb2 CDEDB2=/path/to/cdedb2` runs it.
-
-The contexts in `cdedb_ctx.py` follow `AbstractFrontend.fill_template`
-(what every template gets), `render` and `CoreFrontend.index`;
+It checks against cdedb2's real types (its checkout goes on `MYPYPATH`;
+errors inside cdedb2 are not reported).
+`cdedb_ctx.py` has the context of what every template gets
+(`AbstractFrontend.fill_template` and `render`),
 `cdedb_filters.py` mirrors the signatures in `cdedb/filter.py`
 (cdedb2 itself would point `--filters-registry` at `cdedb.filter:JINJA_FILTERS`)
 and `cdedb_globals.py` what the constructor puts into `Environment.globals`.
 
-It reports four things in the unmodified templates:
+Two ways to get the index page's own context:
+
+- `make check-cdedb2 CDEDB2=/path/to/cdedb2` uses the hand-written
+  `CoreIndexContext` in `cdedb_ctx.py`,
+  whose `dashboard` is a precise TypedDict (see the assumption below).
+- `make collect-cdedb2 CDEDB2=/path/to/cdedb2` generates the contexts of all
+  frontends from cdedb2's `render()` calls first.
+  That finds 184 calls rendering 166 templates;
+  133 have complete contexts, 33 are rendered with a non-literal dict.
+  Of the 456 generated fields, 62 are plain `Any` and 146 mention `Any`
+  somewhere (e.g. `dict[str, Any]` for cdedb2's `CdEDBObject`),
+  because that is what the call sites pass.
+  The index page's generated context is
+  `meta_info: MetaInfo` and `dashboard: dict[str, Any]`:
+  all findings below are the same, but nothing inside `dashboard` is checked.
+
+Both report four things in the unmodified templates:
 
 - `util.tmpl` passes `defaultvalue` to a macro in `form_input_file`,
   but that macro has no such parameter or variable --
   it passes Jinja's `Undefined`, which is probably harmless but looks unintended.
-- `util.tmpl:709` reads `value` in `input_select`, which is nowhere defined
+- `util.tmpl:704` and `706` read `value` in `input_select`, which is nowhere defined
   (the line above computes `former_value`), so the sanity check
   `{% if value in ("", none) and defaultvalue %}` can never fire.
-- `base.tmpl:227` calls `mls_with_defect_explicits.items()` inside
+- `base.tmpl:229` calls `mls_with_defect_explicits.items()` inside
   `{% if defect_username or mls_with_defect_explicits %}`.
   This is correct only because `transform_defect_addresses` returns either
   two `None`s or two values; the checker cannot know and the context would
@@ -153,15 +213,17 @@ It reports four things in the unmodified templates:
 
 (The first two are what I read them as; I have not run them against a
 database or asked the maintainers.)
-Typing the index page's `dashboard` needed one assumption.
+
+The hand-written index context needed one assumption.
 `CoreFrontend.index` adds `orga`, `orga_registrations` and `present`
-(likewise `moderator`, `events`, …) only when there is something to show,
-and the template relies on them coming together.
-A type checker cannot see that, so the case study types the dashboard as if
+(likewise `moderator`, `events`, …) to the dashboard only when there is something
+to show, and the template relies on them coming together.
+A type checker cannot see that, so `cdedb_ctx.py` types the dashboard as if
 `index` started from empty defaults; the `{% if dashboard.get('orga') %}` guards
 in the template then keep working unchanged.
 
 `mutations.py` applies twelve realistic mistakes one at a time
 (attribute and key typos, an optional value used without its guard,
 a wrong keyword for a macro or a filter, a renamed library macro, ...)
-and checks that each produces a new finding: all twelve do.
+and checks that each produces a new finding: all twelve do
+with the hand-written context.

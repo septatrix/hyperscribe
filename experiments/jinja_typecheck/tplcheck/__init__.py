@@ -54,7 +54,7 @@ def loop_(iterable: Iterable[T]) -> Loop[T]:
 
 
 def getattr_(
-    obj: object,
+    obj: Any,
     name: str,
     narrowed: Literal["defined", "notnone", "truthy"] | None = None,
 ) -> Any:
@@ -68,6 +68,17 @@ def getattr_(
     (``is defined`` / ``'k' in d``: not ``UndefinedValue``;
     ``is not none``: not ``None``; a truthiness test or ``d.get('k')``: neither).
     mypy cannot narrow call expressions itself, so the plugin does it.
+    """
+    raise NotImplementedError
+
+
+# `Any` parameters, not `object`: the latter is the type context for the argument
+# expression and makes mypy infer e.g. `d.get(k, default)` as plain `object`.
+def getitem_(obj: Any, arg: Any) -> Any:
+    """Jinja's ``obj[arg]``: subscription, falling back to an attribute named ``arg``.
+
+    The mypy plugin types the subscription where ``obj`` supports it;
+    for other objects indexed by a string the attribute is not known, so ``Any``.
     """
     raise NotImplementedError
 

@@ -514,3 +514,42 @@ def test_imports_fill_the_importee_from_the_importers_context(
     output = run_many(tmp_path, {"lib.html": lib, "page.html": page}, monkeypatch)
     # `name` is a key of the library's context that the page does not provide
     assert 'Missing key "name"' in output
+
+
+def test_subscript_falls_back_to_attribute_like_jinja(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # an object without __getitem__ indexed by a string is an attribute lookup
+    page = (
+        GUARD
+        + "{% set field = 'label' %}{{ thing[field] }}"
+        + "{{ users[0].name }}{{ users['x'] }}"
+    )
+    output = run_many(tmp_path, {"page.html": page}, monkeypatch)
+    # `users` is not in GuardCtx, so that is the only error; the rest is fine
+    assert output.count("error:") == 2, output
+    assert 'has no key "users"' in output
+
+
+def test_subscript_with_wrong_key_type_is_reported(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    page = "{# tplcheck\n   context: ctxmod.Ctx\n#}\n{% for u in users %}{{ u[title] }}{{ users[title] }}{% endfor %}"
+    output = run_many(tmp_path, {"page.html": page}, monkeypatch)
+    assert "page.html:4" in output  # list indexed by a str
+    assert output.count("error:") >= 1, output
+
+
+def test_get_with_default_keeps_its_type(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # mypy must not infer `d.get(k, default)` as `object` from the helper's parameter
+    page = (
+        HEAD
+        + "{% for u in users %}"
+        + "{% with names = {'a': ('x', 'y')} %}"
+        + "{{ names.get(u.name, (None, None))[1] }}"
+        + "{% endwith %}{% endfor %}"
+    )
+    output = run_many(tmp_path, {"page.html": page}, monkeypatch)
+    assert output.startswith("Success"), output

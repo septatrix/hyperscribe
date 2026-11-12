@@ -18,14 +18,16 @@ from collections.abc import Callable
 
 from mypy.checkmember import analyze_member_access
 from mypy.expandtype import expand_type_by_instance
-from mypy.nodes import StrExpr
+from mypy.nodes import IndexExpr, StrExpr
 from mypy.plugin import FunctionContext, Plugin
 from mypy.typeops import make_simplified_union
 from mypy.types import (
     AnyType,
     CallableType,
     Instance,
+    LiteralType,
     NoneType,
+    TupleType,
     Type,
     TypedDictType,
     TypeOfAny,
@@ -102,12 +104,56 @@ def _getattr_hook(ctx: FunctionContext) -> Type:
     return _member(ctx, ctx.arg_types[0][0], name_expr.value, narrowed)
 
 
+def _index(ctx: FunctionContext, node: IndexExpr, typ: Type, arg: Type) -> Type:
+    proper = get_proper_type(typ)
+    if isinstance(proper, AnyType):
+        return proper
+    if isinstance(proper, UnionType):
+        return make_simplified_union(
+            [_index(ctx, node, item, arg) for item in proper.items]
+        )
+    subscriptable = (
+        isinstance(proper, TupleType | TypedDictType)
+        or (
+            isinstance(proper, Instance)
+            and proper.type.has_readable_member("__getitem__")
+        )
+        or (isinstance(proper, Instance) and proper.type.fullname == "builtins.type")
+    )
+    if not subscriptable and isinstance(proper, Instance):
+        # Jinja: `obj[name]` is `getattr(obj, name)` if `obj` cannot be indexed.
+        if may_be_str(arg):
+            return AnyType(TypeOfAny.special_form)
+    checker = ctx.api.expr_checker  # type: ignore[attr-defined]
+    return checker.visit_index_with_type(proper, node)  # type: ignore[no-any-return]
+
+
+def may_be_str(typ: Type) -> bool:
+    proper = get_proper_type(typ)
+    if isinstance(proper, AnyType):
+        return True
+    if isinstance(proper, UnionType):
+        return any(may_be_str(item) for item in proper.items)
+    if isinstance(proper, LiteralType):
+        proper = proper.fallback
+    return isinstance(proper, Instance) and proper.type.fullname == "builtins.str"
+
+
+def _getitem_hook(ctx: FunctionContext) -> Type:
+    base, index = ctx.args[0][0], ctx.args[1][0]
+    node = IndexExpr(base, index)
+    node.set_line(ctx.context)
+    return _index(ctx, node, ctx.arg_types[0][0], ctx.arg_types[1][0])
+
+
 class TplCheckPlugin(Plugin):
     def get_function_hook(
         self, fullname: str
     ) -> Callable[[FunctionContext], Type] | None:
         if fullname == "tplcheck.getattr_":
             return _getattr_hook
+        if fullname == "tplcheck.getitem_":
+            return _getitem_hook
         return None
 
 

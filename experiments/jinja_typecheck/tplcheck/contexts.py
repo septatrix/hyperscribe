@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import importlib
+import os
+import sys
 
 
 def context_keys(dotted: str | None) -> frozenset[str]:
@@ -15,3 +17,18 @@ def context_keys(dotted: str | None) -> frozenset[str]:
         return frozenset(cls.__required_keys__ | cls.__optional_keys__)
     except (ImportError, AttributeError) as error:
         raise ValueError(f"cannot load context {dotted}: {error}") from error
+
+
+def add_import_paths() -> None:
+    """Make the project importable: the working directory and ``MYPYPATH``.
+
+    Context TypedDicts, filter modules and mappers are project code that is
+    imported while generating; explicit ``MYPYPATH`` entries win over what is
+    already on ``sys.path``.
+    """
+    mypypath = [p for p in os.environ.get("MYPYPATH", "").split(":") if p]
+    for entry in reversed([os.getcwd(), *mypypath]):
+        if entry in sys.path:
+            sys.path.remove(entry)
+        sys.path.insert(0, entry)
+    importlib.invalidate_caches()

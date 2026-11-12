@@ -34,8 +34,16 @@ HEADERS: dict[str, str] = {
 }
 
 
-def main(checkout: Path, target: Path) -> None:
+# Templates that a frontend method renders directly, so their context can be
+# generated from the render() call (`python -m tplcheck.collect`).
+RENDERED = {"web/core/index.tmpl"}
+
+
+def main(checkout: Path, target: Path, generated: bool = False) -> None:
+    """With ``generated``, pages whose context comes from render() are left bare."""
     for name, body in HEADERS.items():
+        if generated and name in RENDERED:
+            body = ""
         source = (checkout / PREFIX / name).read_text(encoding="utf-8")
         header = "{# tplcheck\n" + "\n".join(
             "   " + line.strip() for line in body.strip().splitlines()
@@ -48,4 +56,4 @@ def main(checkout: Path, target: Path) -> None:
 
 
 if __name__ == "__main__":
-    main(Path(sys.argv[1]), Path(sys.argv[2]))
+    main(Path(sys.argv[1]), Path(sys.argv[2]), "--generated" in sys.argv[3:])

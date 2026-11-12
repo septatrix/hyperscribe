@@ -3,7 +3,7 @@
 Applies one small edit at a time to the prepared templates and reports whether
 the checker finds something it did not find in the unmodified templates::
 
-    python mutations.py PATH/TO/cdedb2
+    MYPYPATH=PATH/TO/cdedb2 python mutations.py PATH/TO/cdedb2
 """
 
 from __future__ import annotations
@@ -103,7 +103,7 @@ def errors(templates: Path, shadow: Path) -> set[str]:
         templates,
         shadow,
         None,
-        ["--config-file", str(HERE.parent.parent / "mypy.ini"), "--no-incremental"],
+        ["--config-file", str(HERE / "cdedb2.ini"), "--no-incremental"],
         CONFIG,
     )
     return {

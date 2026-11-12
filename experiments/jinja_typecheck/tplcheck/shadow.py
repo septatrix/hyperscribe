@@ -147,6 +147,10 @@ class Config:
     #: Those functions are used as they are, so their own annotations are checked.
     filters_registry: str | None = None
     tests_registry: str | None = None
+    #: Module with ``TEMPLATE_CONTEXTS`` (template name -> context TypedDict),
+    #: as written by ``python -m tplcheck.collect``. A template listed there
+    #: is checked even without a header; a ``context:`` line still wins.
+    contexts_module: str | None = None
     globals_module: str | None = None
     #: Translate templates without a header too, with an untyped (Any) context.
     lenient: bool = False
@@ -230,11 +234,15 @@ class Emitter:
         environment: Environment,
         templates: Mapping[str, TemplateInfo],
         config: Config,
+        context: str | None = None,
     ) -> None:
         self.source_name = source_name
         self.templates = templates
         self.config = config
         header = parse_header(source)
+        if context is not None:  # from the generated contexts module
+            header = header or Header()
+            header.context = header.context or context
         self.untyped = header is None
         if header is None:
             if not config.lenient:
@@ -356,7 +364,7 @@ class Emitter:
             "from typing import Any",
             "from markupsafe import Markup",
             "from tplcheck import anything_, concat_, emit, getattr_, loop_",
-            "from tplcheck import self_, super_, undefined_",
+            "from tplcheck import getitem_, self_, super_, undefined_",
             "from tplcheck import filters as f, globals_ as g, tests as t",
             *self.header.imports,
             "import tplcheck",
@@ -847,7 +855,7 @@ class Emitter:
                 for p in (node.arg.start, node.arg.stop, node.arg.step)
             ]
             return f"{obj}[{':'.join(parts)}]"
-        return f"{obj}[{self.expr(node.arg)}]"
+        return f"getitem_({obj}, {self.expr(node.arg)})"
 
     def arguments(self, node: nodes.Call | nodes.Filter | nodes.Test) -> list[str]:
         args = [self.expr(a) for a in node.args]
@@ -1060,11 +1068,13 @@ def translate(
     environment: Environment | None = None,
     templates: Mapping[str, TemplateInfo] | None = None,
     config: Config | None = None,
+    context: str | None = None,
 ) -> str:
     """Translate one template, or raise UnsupportedError with its line number.
 
     ``templates`` maps template names to the annotated templates
     that this one may extend, include or import.
+    ``context`` is the context TypedDict if the header does not name one.
     """
     config = config or Config()
     emitter = Emitter(
@@ -1073,5 +1083,6 @@ def translate(
         environment or make_environment(config),
         templates or {},
         config,
+        context,
     )
     return emitter.generate()

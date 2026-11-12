@@ -9,9 +9,12 @@ from __future__ import annotations
 
 import datetime
 from collections.abc import Callable, Collection, Mapping
-from typing import Any, TypedDict
+from typing import TYPE_CHECKING, Any, TypedDict
 
 from typing_extensions import NotRequired
+
+if TYPE_CHECKING:
+    import cdedb.models.core
 
 Notification = tuple[str, str, dict[str, Any]]
 
@@ -78,7 +81,7 @@ class OptionalPageContext(BaseContext):
 
     jshint: NotRequired[str]
     login_form: NotRequired[bool]
-    meta_info: NotRequired[Mapping[str, str | None]]
+    meta_info: NotRequired[cdedb.models.core.MetaInfo]
     mainnav_active: NotRequired[str]
     sidenav_active: NotRequired[str]
 
@@ -138,5 +141,5 @@ class Dashboard(_OptionalDashboard):
 
 
 class CoreIndexContext(BaseContext):
-    meta_info: Mapping[str, str | None]
+    meta_info: cdedb.models.core.MetaInfo
     dashboard: Dashboard
